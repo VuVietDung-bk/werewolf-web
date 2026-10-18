@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ma Sói — wireframe bước 1</title>
+  <style>
+    :root { color-scheme: dark; --bg:#101626; --panel:#1c2636; --panel2:#243246; --line:#59637a; --text:#f4e8d0; --muted:#b6c2ce; --gold:#e9b66f; --blue:#74b7c9; --red:#d6756e; --green:#9cc89f; }
+    * { box-sizing:border-box; }
+    html { font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+    body { margin:0; min-width:320px; }
+    button,input,textarea,select { font:inherit; }
+    button { cursor:pointer; }
+    button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible { outline:3px solid var(--blue); outline-offset:2px; }
+    .shell { max-width:1320px; margin:auto; padding:22px; }
+    .top { display:flex; gap:18px; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); padding-bottom:16px; }
+    .brand { font-weight:900; letter-spacing:.15em; color:var(--gold); font-size:1.15rem; }
+    .small { color:var(--muted); font-size:.88rem; }
+    .nav { display:flex; flex-wrap:wrap; gap:8px; margin:20px 0 26px; }
+    .nav button,.soft,.primary,.danger { border:1px solid var(--line); border-radius:7px; background:var(--panel); color:var(--text); padding:10px 14px; font-weight:650; }
+    .nav button[aria-pressed="true"],.primary { background:var(--gold); color:#182032; border-color:var(--gold); }
+    .danger { border-color:var(--red); color:#ffd6d2; }
+    .soft { background:var(--panel2); }
+    .screen[hidden] { display:none; }
+    h1 { font-size:clamp(1.8rem,3vw,2.7rem); line-height:1.15; margin:0 0 10px; }
+    h2 { font-size:1.2rem; margin:0 0 12px; }
+    h3 { font-size:1rem; margin:0 0 8px; }
+    p { line-height:1.52; }
+    .lede { color:var(--muted); margin:0 0 24px; }
+    .panel { background:rgba(28,38,54,.96); border:1px solid var(--line); border-radius:10px; padding:20px; min-width:0; }
+    .grid { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(290px,1fr); gap:18px; }
+    .grid.equal { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .stack { display:grid; gap:18px; align-content:start; }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .badge { display:inline-flex; border:1px solid var(--line); background:var(--panel2); border-radius:99px; padding:5px 10px; color:var(--muted); font-size:.82rem; font-weight:700; }
+    .badge.gold { color:var(--gold); border-color:var(--gold); }
+    .badge.blue { color:var(--blue); border-color:var(--blue); }
+    .badge.red { color:#ffd6d2; border-color:var(--red); }
+    .badge.green { color:var(--green); border-color:var(--green); }
+    .subline { color:var(--muted); font-size:.9rem; }
+    .rule { border-top:1px solid var(--line); margin:18px 0; }
+    .space { margin-top:16px; }
+    .field { display:grid; gap:6px; margin:12px 0; }
+    .field label { color:var(--muted); font-size:.88rem; font-weight:650; }
+    input,textarea,select { width:100%; border:1px solid var(--line); border-radius:6px; background:#101a29; color:var(--text); padding:10px 12px; }
+    textarea { resize:vertical; min-height:76px; }
+    .notice { background:#233342; border-left:4px solid var(--blue); padding:12px 14px; border-radius:4px; line-height:1.5; }
+    .lobby-hero { min-height:300px; background:linear-gradient(90deg,rgba(16,22,38,.84),rgba(16,22,38,.16)),url("assets/lobby-concept.png") center/cover; display:flex; align-items:end; border-radius:8px; border:1px solid var(--line); padding:28px; }
+    .lobby-hero > div { max-width:560px; text-shadow:0 2px 8px #000; }
+    .lobby-hero p { max-width:420px; }
+    .roster { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; padding:0; list-style:none; }
+    .roster li,.mini-card { border:1px solid var(--line); background:var(--panel2); border-radius:6px; padding:10px 12px; }
+    .phasebar { background:#152236; border:1px solid var(--blue); border-radius:8px; padding:13px 18px; margin-bottom:18px; }
+    .role-card { display:flex; gap:18px; align-items:center; background:linear-gradient(140deg,#243149,#171e32); border:1px solid var(--gold); border-radius:8px; overflow:hidden; min-height:230px; }
+    .role-art { width:35%; align-self:stretch; flex:none; background:radial-gradient(circle at 50% 50%,#364766,#162032 75%); display:grid; place-items:center; }
+    .role-art img { width:100%; max-height:250px; object-fit:contain; image-rendering:pixelated; }
+    .role-copy { padding:16px 18px 16px 0; }
+    .role-copy p { margin:8px 0; }
+    .choice-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+    .role-choice { display:grid; gap:12px; align-content:start; }
+    .role-choice .role-thumb { width:100%; height:150px; display:grid; place-items:center; background:#142038; border:1px solid var(--line); border-radius:6px; overflow:hidden; color:var(--gold); font-size:2.8rem; font-weight:800; }
+    .role-thumb img { max-width:100%; max-height:100%; object-fit:contain; image-rendering:pixelated; }
+    .catalog-card summary { cursor:pointer; font-weight:750; color:var(--gold); }
+    .catalog-card summary:focus-visible { outline:3px solid var(--blue); outline-offset:4px; }
+    .catalog-card p { margin-bottom:0; }
+    .catalog-icon { display:inline-grid; place-items:center; width:32px; height:32px; margin-right:8px; vertical-align:middle; border:1px solid var(--line); border-radius:4px; background:#142038; color:var(--gold); }
+    .catalog-icon img { width:100%; height:100%; object-fit:cover; image-rendering:pixelated; }
+    .radio-row { display:flex; gap:10px; align-items:flex-start; border:1px solid var(--line); border-radius:6px; padding:10px; margin:8px 0; }
+    .radio-row input { width:auto; margin:4px 0 0; }
+    .radio-row span { display:block; color:var(--muted); font-size:.84rem; margin-top:3px; }
+    .check-row { display:flex; gap:8px; align-items:center; margin:8px 0; }
+    .check-row input { width:auto; }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:11px; margin-bottom:16px; }
+    .tabs span { border:1px solid var(--line); border-radius:6px; padding:7px 10px; color:var(--muted); font-weight:650; }
+    .tabs .active { border-color:var(--gold); color:var(--gold); }
+    .chatlog { display:grid; gap:11px; min-height:190px; align-content:end; }
+    .message { background:#25344a; border-radius:6px; padding:10px 12px; }
+    .message b { color:var(--blue); }
+    .message time { color:var(--muted); font-size:.78rem; margin-left:8px; }
+    .message p { margin:5px 0 0; }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    .two-small { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .table { width:100%; border-collapse:collapse; font-size:.9rem; }
+    .table th,.table td { border-bottom:1px solid var(--line); padding:10px 8px; text-align:left; vertical-align:top; }
+    .table th { color:var(--muted); font-weight:650; }
+    .timeline { display:grid; gap:12px; }
+    .event { border-left:3px solid var(--line); padding:8px 12px; background:var(--panel2); border-radius:0 6px 6px 0; }
+    .event.dead { border-color:var(--red); }
+    .event.revive { border-color:var(--green); }
+    .event.private { border-color:var(--blue); }
+    .event time { color:var(--muted); font-size:.8rem; }
+    .event p { margin:5px 0 0; }
+    .metric { text-align:center; }
+    .metric strong { display:block; font-size:1.7rem; color:var(--gold); }
+    .metric span { color:var(--muted); font-size:.85rem; }
+    .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:18px; }
+    .footer { margin-top:28px; border-top:1px solid var(--line); padding-top:14px; color:var(--muted); font-size:.8rem; }
+    @media(max-width:850px) { .grid,.grid.equal { grid-template-columns:1fr; } .choice-grid { grid-template-columns:1fr; } .top { align-items:start; flex-direction:column; } .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media(max-width:530px) { .shell { padding:14px; } .panel { padding:15px; } .lobby-hero { min-height:250px; padding:16px; } .role-card { align-items:stretch; } .role-art { width:38%; } .role-copy { padding:12px; } .roster,.two-small { grid-template-columns:1fr; } .table { font-size:.8rem; } .table th,.table td { padding:8px 4px; } }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.001ms !important; transition-duration:.001ms !important; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="top">
+      <div><div class="brand">MA SÓI · HỒ SƠ LÀNG</div><div class="small">Wireframe bước 1 · dữ liệu minh hoạ · không kết nối máy chủ</div></div>
+      <span class="badge gold">Pixel art: huyền bí, tối màu</span>
+    </header>
+    <nav class="nav" aria-label="Chọn màn hình mẫu">
+      <button type="button" data-screen="lobby" aria-pressed="true">Sảnh</button>
+      <button type="button" data-screen="roles" aria-pressed="false">Danh mục role</button>
+      <button type="button" data-screen="setup" aria-pressed="false">Thiết lập role</button>
+      <button type="button" data-screen="draft" aria-pressed="false">Chọn role 1/3</button>
+      <button type="button" data-screen="player" aria-pressed="false">Người chơi</button>
+      <button type="button" data-screen="host" aria-pressed="false">Quản trò</button>
+      <button type="button" data-screen="deaths" aria-pressed="false">Người chết</button>
+      <button type="button" data-screen="recap" aria-pressed="false">Tổng kết</button>
+    </nav>
+
+    <main>
+      <section class="screen" id="lobby">
+        <h1>Sảnh chờ — Làng Trăng Mù</h1>
+        <p class="lede">Bước 1: người chơi xem thông tin phòng và đồng ý chính sách công bố trước khi tham gia.</p>
+        <div class="grid">
+          <div class="stack">
+            <div class="lobby-hero"><div><span class="badge gold">Đang mở đăng ký</span><h2 class="space">Đêm sẽ đến khi quản trò sẵn sàng</h2><p>7 / 8 ghế · Quản trò: An · Mã phòng: <strong>TRANG-MU</strong></p></div></div>
+            <div class="panel"><h2>Chính sách công bố sau trận</h2><div class="notice">Sau khi trận kết thúc, tất cả người đã tham gia phòng có thể xem toàn bộ chat trong trò chơi, gồm chat đội và chat riêng với quản trò, cùng yêu cầu role và quyết định của quản trò. Hãy chỉ gửi nội dung bạn chấp nhận công bố sau trận.</div><div class="actions"><button class="primary" type="button">Tôi đã hiểu và tham gia phòng</button><button class="soft" type="button">Rời sảnh</button></div></div>
+            <div class="panel"><h2>Chat chung · sảnh chờ</h2><p class="subline">Người đã tham gia và xác nhận chính sách có thể chat ngay, kể cả khi chờ chọn role. Tin nhắn được công bố trong nhật ký sau trận.</p><div class="message"><b>Bình</b><time>19:02</time><p>Chào mọi người, tối nay mình chơi luật nào?</p></div><div class="field"><label for="lobby-chat">Tin nhắn chat chung</label><input id="lobby-chat" placeholder="Viết tin cho cả phòng…"></div><button class="soft" type="button">Gửi tin</button></div>
+          </div>
+          <div class="stack">
+            <div class="panel"><div class="row"><h2>Thành viên</h2><span class="badge">7 / 8 người chơi</span></div><ul class="roster"><li>An <span class="small">· Quản trò</span></li><li>Bình</li><li>Chi</li><li>Dũng</li><li>Hà</li><li>Lan</li><li>Minh</li><li>Nga</li></ul></div>
+            <div class="panel"><h2>Thiết lập được công bố</h2><p><strong>Chế độ:</strong> Quản trò điều hành</p><p><strong>Cách phát role mẫu:</strong> Phát ngẫu nhiên; quản trò có thể chọn chế độ 1 trong 3 trước khi phát</p><p><strong>Chat:</strong> Chung từ sảnh chờ và Ngày 0; đội ban đêm</p><p class="subline">Sau khi tham gia, bạn xem được toàn bộ mô tả role; role được gán cho từng người vẫn kín.</p><button class="soft" type="button" data-screen="roles">Xem đầy đủ danh mục role</button></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" id="roles" hidden>
+        <h1>Danh mục role của phòng</h1>
+        <p class="lede">Mọi thành viên xem được toàn bộ mô tả, phe, đội chat, quyền gửi yêu cầu và icon từ sảnh đến hết trận. Bấm tên để mở chi tiết. Danh mục không cho biết ai đang giữ role nào.</p>
+        <div class="notice">Ví dụ phòng này dùng phát ngẫu nhiên: số bản của từng role được công bố dưới đây. Nếu chọn chế độ 1 trong 3, màn này hiện role ứng viên và số ghế từng phe.</div>
+        <div class="grid equal space">
+          <div class="stack">
+            <details class="panel catalog-card" open><summary><span class="catalog-icon"><img src="assets/seer-concept.png" alt=""></span>Tiên Tri · Làng · 1 bản</summary><p>Mỗi đêm một lần, Tiên Tri gửi tên đúng một người để đề nghị soi role. Quản trò đối chiếu hiệu ứng hiện có rồi trả lời riêng kết quả được phép biết; hệ thống không tự tiết lộ thông tin.</p><p class="subline">Đội chat: không có · Chủ động đêm · Gửi yêu cầu và mở chat quản trò ban đêm.</p></details>
+            <details class="panel catalog-card"><summary><span class="catalog-icon" aria-hidden="true">X</span>Xạ thủ · Làng · 0 bản</summary><p>Mỗi ngày một lần, Xạ thủ có thể đề nghị bắn đúng một người. Quản trò xét tình trạng và hiệu ứng của mục tiêu, rồi quyết định có giết và công bố hay không.</p><p class="subline">Đội chat: không có · Chủ động ngày · Gửi yêu cầu và mở chat quản trò ban ngày.</p></details>
+            <details class="panel catalog-card"><summary><span class="catalog-icon" aria-hidden="true">N</span>Người nổi tiếng · Làng · 0 bản</summary><p>Role bị động. Khi quản trò công bố cái chết của người này, thông báo phải nêu rõ role Người nổi tiếng. Người chơi không gửi yêu cầu hoặc chủ động mở chat quản trò.</p><p class="subline">Đội chat: không có · Bị động · Chỉ trả lời nếu quản trò nhắn trước.</p></details>
+            <details class="panel catalog-card"><summary><span class="catalog-icon" aria-hidden="true">D</span>Dân làng · Làng · 3 bản</summary><p>Tham gia thảo luận và suy luận bằng chat chung. Không có hành động role chủ động; quản trò điều hành mọi kết quả của ván.</p><p class="subline">Đội chat: không có · Bị động · Chỉ trả lời nếu quản trò nhắn trước.</p></details>
+            <details class="panel catalog-card"><summary><span class="catalog-icon" aria-hidden="true">S</span>Sói thường · Sói · 2 bản</summary><p>Ban đêm, đội Sói được trao đổi trong chat riêng và đề nghị giết một người. Quản trò xét các bảo vệ và hiệu ứng rồi quyết định cái chết; đề nghị không tự tạo kết quả.</p><p class="subline">Đội chat: Sói · Chủ động đêm · Gửi yêu cầu và mở chat quản trò ban đêm.</p></details>
+          </div>
+          <div class="stack">
+            <details class="panel catalog-card"><summary><span class="catalog-icon" aria-hidden="true">B</span>Sói Băng · Sói · 0 bản</summary><p>Mỗi đêm, Sói Băng có thể đề nghị đóng băng một người. Nếu quản trò chấp nhận, yêu cầu dùng role của người đó ở đêm kế tiếp không có tác dụng; quản trò ghi hiệu ứng và từ chối yêu cầu tương ứng bằng tay.</p><p class="subline">Đội chat: Sói · Chủ động đêm · Gửi yêu cầu và mở chat quản trò ban đêm.</p></details>
+            <details class="panel catalog-card"><summary><span class="catalog-icon" aria-hidden="true">P</span>Sói Pháp Sư · Sói · 0 bản</summary><p>Mỗi đêm, Sói Pháp Sư gửi một con số dự đoán số người phe Làng còn sống. Quản trò trả lời riêng đúng hoặc sai sau khi kiểm tra trạng thái thật; không cần nhập tên mục tiêu.</p><p class="subline">Đội chat: Sói · Chủ động đêm · Gửi yêu cầu và mở chat quản trò ban đêm.</p></details>
+            <details class="panel catalog-card"><summary><span class="catalog-icon" aria-hidden="true">H</span>Kẻ Phóng Hỏa · Trung lập · 1 bản</summary><p>Mỗi đêm, Kẻ Phóng Hỏa có thể đề nghị đánh dấu bất kỳ số người còn sống, không giới hạn số mục tiêu. Ở một đêm sau, họ có thể đề nghị kích hoạt; quản trò xét các hiệu ứng rồi quyết định ai chết và xóa dấu đã dùng.</p><p class="subline">Đội chat: không có · Chủ động đêm · Gửi yêu cầu và mở chat quản trò ban đêm.</p></details>
+            <details class="panel catalog-card"><summary><span class="catalog-icon" aria-hidden="true">T</span>Kẻ Sưu Tầm · Trung lập · 0 bản</summary><p>Role bị động: mỗi lần quản trò công bố một người chết, Kẻ Sưu Tầm nhận một dấu ấn. Nếu còn sống và có ít nhất hai dấu ấn khi ván kết thúc, quản trò ghi họ thắng. Quản trò tự ghi dấu ấn.</p><p class="subline">Đội chat: không có · Bị động · Chỉ trả lời nếu quản trò nhắn trước.</p></details>
+            <details class="panel catalog-card"><summary><span class="catalog-icon" aria-hidden="true">C</span>Kẻ Sống Sót · Trung lập · 0 bản</summary><p>Role bị động: thắng nếu còn sống khi quản trò kết thúc ván. Không có yêu cầu dùng kỹ năng hoặc quyền chủ động liên hệ quản trò; quản trò xét điều kiện thắng thủ công.</p><p class="subline">Đội chat: không có · Bị động · Chỉ trả lời nếu quản trò nhắn trước.</p></details>
+          </div>
+        </div>
+        <p class="subline">Tên, mô tả và icon ở đây là dữ liệu mẫu; quản trò có thể sửa bộ role trước khi khóa cấu hình.</p>
+      </section>
+
+      <section class="screen" id="setup" hidden>
+        <h1>Bộ role và cách phát trước trận</h1>
+        <p class="lede">Góc nhìn quản trò. Mẫu này cho thấy role dùng ban ngày, ban đêm và role bị động. Điều kiện kỹ năng ghi trong mô tả, yêu cầu gửi bằng văn bản tự do.</p>
+        <div class="grid">
+          <div class="stack">
+            <div class="panel">
+              <div class="row"><h2>Bộ role: Làng Trăng Mù</h2><span class="badge gold">7 slot / 7 người</span></div>
+              <table class="table"><thead><tr><th>Role</th><th>Phe</th><th>Kiểu</th><th>Số bản khi phát ngẫu nhiên</th><th>Ứng viên 1/3</th></tr></thead>
+                <tbody>
+                  <tr><td>Tiên Tri</td><td>Làng</td><td>Chủ động · đêm</td><td>1</td><td><input type="checkbox" checked aria-label="Tiên Tri là ứng viên 1 trong 3"></td></tr>
+                  <tr><td>Xạ thủ</td><td>Làng</td><td>Chủ động · ngày</td><td>0</td><td><input type="checkbox" checked aria-label="Xạ thủ là ứng viên 1 trong 3"></td></tr>
+                  <tr><td>Người nổi tiếng</td><td>Làng</td><td>Bị động</td><td>0</td><td><input type="checkbox" checked aria-label="Người nổi tiếng là ứng viên 1 trong 3"></td></tr>
+                  <tr><td>Dân làng</td><td>Làng</td><td>Bị động</td><td>3</td><td><input type="checkbox" checked aria-label="Dân làng là ứng viên 1 trong 3"></td></tr>
+                  <tr><td>Sói thường</td><td>Sói</td><td>Chủ động · đêm</td><td>2</td><td><input type="checkbox" checked aria-label="Sói thường là ứng viên 1 trong 3"></td></tr>
+                  <tr><td>Sói Băng</td><td>Sói</td><td>Chủ động · đêm</td><td>0</td><td><input type="checkbox" checked aria-label="Sói Băng là ứng viên 1 trong 3"></td></tr>
+                  <tr><td>Sói Pháp Sư</td><td>Sói</td><td>Chủ động · đêm</td><td>0</td><td><input type="checkbox" checked aria-label="Sói Pháp Sư là ứng viên 1 trong 3"></td></tr>
+                  <tr><td>Kẻ Phóng Hỏa</td><td>Trung lập</td><td>Chủ động · đêm</td><td>1</td><td><input type="checkbox" checked aria-label="Kẻ Phóng Hỏa là ứng viên 1 trong 3"></td></tr>
+                  <tr><td>Kẻ Sưu Tầm</td><td>Trung lập</td><td>Bị động</td><td>0</td><td><input type="checkbox" checked aria-label="Kẻ Sưu Tầm là ứng viên 1 trong 3"></td></tr>
+                  <tr><td>Kẻ Sống Sót</td><td>Trung lập</td><td>Bị động</td><td>0</td><td><input type="checkbox" checked aria-label="Kẻ Sống Sót là ứng viên 1 trong 3"></td></tr>
+                </tbody></table>
+              <div class="actions"><button class="soft" type="button">Thêm role</button><button class="soft" type="button">Lưu bộ mẫu</button></div>
+            </div>
+            <div class="panel">
+              <h2>Cách phát role</h2>
+              <label class="radio-row"><input type="radio" name="assign-mode" checked><span><strong>Phát ngẫu nhiên</strong><span>Phát kín theo số bản từng role. Ví dụ này có 7 slot đúng 7 người.</span></span></label>
+              <label class="radio-row"><input type="radio" name="assign-mode"><span><strong>Người chơi chọn 1 trong 3</strong><span>Xáo thứ tự chọn; ba role có thể khác phe. Giữ đúng Làng 4, Sói 2, Trung lập 1. Ưu tiên mời Sói và Trung lập ở các lượt đầu.</span></span></label>
+              <div class="two-small"><div class="field"><label for="quota-village">Ghế phe Làng</label><input id="quota-village" type="number" min="0" value="4"></div><div class="field"><label for="quota-wolf">Ghế phe Sói</label><input id="quota-wolf" type="number" min="0" value="2"></div></div>
+              <div class="field"><label for="quota-neutral">Ghế phe Trung lập</label><input id="quota-neutral" type="number" min="0" value="1"></div>
+              <div class="check-row"><input id="duplicate-roles" type="checkbox" checked><label for="duplicate-roles">Cho phép nhiều người nhận cùng một role khi chọn 1 trong 3</label></div>
+              <div class="notice">Ví dụ này cần bật role trùng: khi tắt, mỗi phe cần ít nhất số ghế của phe + 2 tên role khác nhau để mọi lượt vẫn có ba lựa chọn. Quản trò phải thêm role trước khi tắt. Khóa cấu hình rồi mới xáo lượt và phát; không có nút tự đổi bộ ba.</div>
+              <p class="subline">Tiến độ khi phát: lượt đang chọn 1/7 · 0 đã chọn · 7 đang chờ. Người vắng mặt: quản trò ghi lý do rồi bấm chọn ngẫu nhiên hộ.</p>
+              <div class="actions"><button class="primary" type="button">Khóa cấu hình và phát role</button></div>
+            </div>
+          </div>
+          <div class="stack">
+            <div class="panel">
+              <h2>Chỉnh role: Tiên Tri</h2>
+              <div class="field"><label for="role-name">Tên role</label><input id="role-name" value="Tiên Tri"></div>
+              <div class="two-small"><div class="field"><label for="role-faction">Phe thắng</label><select id="role-faction"><option>Làng</option><option>Sói</option><option>Trung lập</option></select></div><div class="field"><label for="role-team">Đội chat</label><select id="role-team"><option>Không có</option><option>Sói</option></select></div></div>
+              <div class="field"><label for="role-kind">Kiểu role</label><select id="role-kind"><option>Chủ động</option><option>Bị động</option></select></div>
+              <div class="field"><label for="role-desc">Mô tả đầy đủ cho mọi người trong phòng</label><textarea id="role-desc" rows="6">Mỗi đêm một lần, Tiên Tri gửi tên đúng một người để đề nghị soi role. Quản trò đối chiếu hiệu ứng hiện có rồi trả lời riêng kết quả được phép biết. Hệ thống không tự tiết lộ thông tin.</textarea></div>
+              <div class="rule"></div>
+              <h3>Quyền gửi yêu cầu tự do</h3>
+              <p class="subline">Chỉ kiểm tra khi nào được gửi. Nội dung, con số và người tác động nằm trong mô tả cùng lời nhắn của người chơi.</p>
+              <div class="check-row"><input id="request-night" type="checkbox" checked><label for="request-night">Được gửi yêu cầu ban đêm</label></div>
+              <div class="check-row"><input id="request-day" type="checkbox"><label for="request-day">Được gửi yêu cầu ban ngày</label></div>
+              <div class="check-row"><input id="request-dead" type="checkbox"><label for="request-dead">Được gửi yêu cầu khi đã chết</label></div>
+              <div class="field"><label for="role-contact">Chủ động nhắn quản trò</label><select id="role-contact"><option>Chỉ ban đêm</option><option>Chỉ ban ngày</option><option>Cả ngày và đêm</option><option>Không được chủ động</option></select></div>
+              <div class="check-row"><input id="reply-host" type="checkbox" checked><label for="reply-host">Được trả lời khi quản trò nhắn trước</label></div>
+              <div class="field"><label for="role-icon">Icon từ thư viện hoặc mặc định</label><select id="role-icon"><option>Tiên Tri · mẫu pixel</option><option>Icon role mặc định</option><option>Dùng icon tải lên</option></select></div>
+              <div class="field"><label for="role-icon-file">Tải icon từ máy quản trò</label><input id="role-icon-file" type="file" accept="image/png,image/webp,image/jpeg"><span class="subline">PNG, WebP hoặc JPEG tĩnh · tối đa 1 MiB · tối đa 512 × 512 px. Máy chủ kiểm tra và chuẩn hóa ảnh; danh mục role sẽ hiển thị icon này cho mọi thành viên.</span></div>
+              <div class="mini-card"><span class="catalog-icon"><img src="assets/seer-concept.png" alt=""></span>Xem trước icon Tiên Tri · ảnh mẫu; icon tải lên sẽ hiện tại đây</div>
+              <p class="subline">Không nhập mã kỹ năng; quản trò tự xử lý hiệu ứng và kết quả.</p>
+            </div>
+            <div class="panel"><h2>Ví dụ role bị động: Người nổi tiếng</h2><p>Không có quyền gửi yêu cầu. Nút “Gửi yêu cầu” và ô mở chat quản trò được ẩn. Nếu quản trò nhắn trước, người chơi có thể trả lời khi bật quyền tương ứng.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" id="draft" hidden>
+        <h1>Chọn một trong ba role</h1>
+        <p class="lede">Góc nhìn riêng của người đang tới lượt trước ngày 0. Thứ tự người chơi được xáo ngẫu nhiên; ba lời mời có thể khác phe, nhưng số ghế cuối mỗi phe luôn đúng cấu hình.</p>
+        <button class="soft" type="button" data-screen="roles">Xem chi tiết tất cả role trước khi chọn</button>
+        <div class="phasebar row"><div><strong>LƯỢT 1/7 · CHỌN ROLE</strong> <span class="subline">· Làng còn 4 ghế · Sói còn 2 · Trung lập còn 1</span></div><span class="badge blue">Chỉ bạn thấy ba lời mời này</span></div>
+        <div class="choice-grid">
+          <div class="panel role-choice"><div class="role-thumb" aria-label="Icon tạm của Sói Băng">S</div><div><span class="badge red">Phe Sói · dùng ban đêm</span><h2 class="space">Sói Băng</h2><p>Đề nghị dùng kỹ năng ban đêm; quản trò tự quyết định kết quả.</p></div><button class="primary" type="button">Chọn Sói Băng</button></div>
+          <div class="panel role-choice"><div class="role-thumb" aria-label="Icon tạm của Kẻ Phóng Hỏa">K</div><div><span class="badge gold">Trung lập · dùng ban đêm</span><h2 class="space">Kẻ Phóng Hỏa</h2><p>Gửi đề nghị riêng ban đêm; quản trò xét và ghi quyết định.</p></div><button class="primary" type="button">Chọn Kẻ Phóng Hỏa</button></div>
+          <div class="panel role-choice"><div class="role-thumb"><img src="assets/seer-concept.png" alt="Chân dung pixel art mẫu của Tiên Tri"></div><div><span class="badge blue">Phe Làng · dùng ban đêm</span><h2 class="space">Tiên Tri</h2><p>Đề nghị soi vai trò một người vào ban đêm. Có thể nhắn quản trò ban đêm.</p></div><button class="primary" type="button">Chọn Tiên Tri</button></div>
+        </div>
+        <div class="panel space"><strong>Chưa quyết được?</strong> <button class="soft" type="button">Chọn ngẫu nhiên trong 3</button><p>Hệ thống chọn một trong đúng ba role trên. Sau khi chọn, role được khóa và ghế phe tương ứng giảm một; lượt sau chỉ nhận role thuộc phe còn ghế. Nếu bạn vắng mặt, quản trò có thể ghi lý do và chọn ngẫu nhiên hộ. Quản trò chờ đủ bảy role rồi mới bắt đầu. <span class="subline">Các nút ở wireframe chỉ minh họa.</span></p></div>
+        <div class="panel space"><h2>Bảng quản trò khi có người vắng mặt</h2><p class="subline">Quản trò thấy thứ tự đã xáo và tiến độ; chỉ người tới lượt nhận ba lời mời riêng. Không có đồng hồ tự chọn ở bản đầu.</p><div class="row"><span>Lượt 1/7: Chi · đang chờ chọn</span><span class="badge gold">0 đã chọn · 7 chưa chọn</span></div><div class="field"><label for="draft-reason">Lý do chọn hộ</label><input id="draft-reason" placeholder="Ví dụ: Chi rời mạng và đồng ý để quản trò chọn hộ"></div><button class="soft" type="button">Chọn ngẫu nhiên hộ Chi</button></div>
+      </section>
+
+      <section class="screen" id="player" hidden>
+        <h1>Góc nhìn người chơi</h1><p class="lede">Ví dụ tài khoản Chi là Tiên Tri, đang ở đêm 1. Thẻ role chỉ gửi tới Chi và quản trò.</p>
+        <div class="phasebar row"><div><strong>ĐÊM 1</strong> <span class="subline">· Đang nhận yêu cầu role</span></div><span class="badge blue">Chưa có cái chết được công bố</span></div>
+        <div class="grid">
+          <div class="stack">
+            <div class="role-card"><div class="role-art"><img src="assets/seer-concept.png" alt="Chân dung pixel art mẫu của Tiên Tri"></div><div class="role-copy"><span class="badge gold">Chỉ mình bạn và quản trò thấy</span><h2 class="space">Tiên Tri</h2><p>Phe Làng · không có chat đội</p><p class="subline">Mỗi đêm có thể đề nghị soi vai trò của một người. Quản trò trả lời riêng và quyết định kết quả.</p></div></div>
+            <div class="panel"><div class="row"><h2>Yêu cầu dùng role</h2><span class="badge">Chưa gửi</span></div><p class="subline">Viết đề nghị theo mô tả role. Có thể nêu người, con số, nhiều mục tiêu hoặc không có mục tiêu.</p><div class="field"><label for="request-note">Nội dung gửi quản trò</label><textarea id="request-note" placeholder="Ví dụ: Tôi muốn soi Lan trong đêm này."></textarea></div><button class="primary" type="button">Gửi yêu cầu</button><p class="subline">Gửi yêu cầu không tự áp dụng kỹ năng; quản trò đọc và quyết định.</p></div>
+            <div class="panel"><h2>Chat</h2><div class="tabs"><span>Chung · chỉ đọc ban đêm</span><span class="active">Với quản trò</span><span>Không có chat đội</span></div><div class="chatlog"><div class="message"><b>Chi</b><time>21:04</time><p>Tôi muốn xác nhận cách dùng Tiên Tri.</p></div><div class="message"><b>Quản trò</b><time>21:06</time><p>Hãy gửi yêu cầu soi ở form phía trên.</p></div></div><div class="field"><label for="private-chat">Tin nhắn riêng với quản trò</label><input id="private-chat" placeholder="Viết tin nhắn…"></div><button class="soft" type="button">Gửi tin</button></div>
+            <div class="panel"><h2>Biến thể quyền: thành viên đội Sói</h2><p class="subline">Nếu Chi được gán vào đội Sói, tab đội xuất hiện. Người không thuộc đội không nhận nội dung này trong trận.</p><div class="tabs"><span>Chung · chỉ đọc ban đêm</span><span class="active">Đội Sói</span><span>Với quản trò</span></div><div class="message"><b>Bình</b><time>21:10</time><p>Chúng ta đề nghị giết Minh.</p></div></div>
+            <div class="panel"><h2>Biến thể: Ngày 0</h2><p class="subline">Chat chung tiếp tục mở sau sảnh chờ, trước đêm 1.</p><div class="message"><b>Lan</b><time>20:15</time><p>Mọi người đã đọc danh mục role chưa?</p></div><div class="field"><label for="day-zero-chat">Tin nhắn chat chung Ngày 0</label><input id="day-zero-chat" placeholder="Viết tin cho cả phòng…"></div><button class="soft" type="button">Gửi tin</button></div>
+            <div class="panel"><h2>Biến thể quyền: role bị động</h2><p class="subline">Nếu Chi là Người nổi tiếng, form yêu cầu dùng role không xuất hiện. Ô soạn chat quản trò bị ẩn cho tới khi quản trò nhắn trước.</p><div class="notice">Không có hành động chủ động trong pha này. Bạn vẫn có thể xem role và các thông báo được phép.</div></div>
+          </div>
+          <div class="stack"><div class="panel"><h2>Trạng thái làng</h2><div class="mini-card">7 người được công bố còn sống</div><p class="subline">Số liệu công khai chỉ đổi khi quản trò công bố. Role được gán cho người khác vẫn kín.</p></div><div class="panel"><h2>Danh mục role</h2><p>Đọc mọi mô tả, phe, icon và quyền dùng role của phòng bất cứ lúc nào.</p><button class="soft" type="button" data-screen="roles">Xem chi tiết tất cả role</button></div><div class="panel"><h2>Thông báo mới</h2><p>Chưa có thông báo người chết được công bố trong đêm 1.</p></div></div>
+        </div>
+      </section>
+
+      <section class="screen" id="host" hidden>
+        <h1>Bàn điều khiển quản trò</h1><p class="lede">Quản trò chốt pha, xử lý yêu cầu và nhập mọi kết quả. Hành động cần lý do và được ghi sự kiện.</p>
+        <div class="phasebar row"><div><strong>ĐÊM 1</strong> <span class="subline">· 2 yêu cầu đang chờ</span></div><div class="actions"><button class="soft" type="button">Tạm dừng</button><button class="primary" type="button">Kết thúc đêm → Ngày 1</button></div></div>
+        <div class="grid">
+          <div class="stack">
+            <div class="panel"><div class="row"><h2>Người chơi</h2><span class="badge">Lọc: Tất cả</span></div><table class="table"><thead><tr><th>Tên</th><th>Role / Phe</th><th>Trạng thái</th><th>Yêu cầu</th></tr></thead><tbody><tr><td>Bình</td><td>Sói thường / Sói</td><td>Sống</td><td>1 chờ</td></tr><tr><td>Chi</td><td>Tiên Tri / Làng</td><td>Sống</td><td>1 chờ</td></tr><tr><td>Minh</td><td>Dân làng / Làng</td><td>Đã chết</td><td>—</td></tr></tbody></table></div>
+            <div class="panel"><div class="row"><h2>Chi · Tiên Tri</h2><span class="badge green">Còn sống</span></div><p class="subline">Hiệu ứng: chưa có · Đội chat: không có</p><div class="actions"><button class="soft" type="button">Thêm hiệu ứng</button><button class="soft" type="button">Ghi chú</button><button class="danger" type="button">Giết</button><button class="soft" type="button">Hồi sinh</button><button class="soft" type="button">Đổi role/phe</button></div><div class="field"><label for="host-reason">Lý do quyết định (lưu vào nhật ký)</label><textarea id="host-reason" placeholder="Ví dụ: Sói chọn Chi; không có bảo vệ được xác nhận."></textarea></div><p class="subline">Nút thao tác trong wireframe không ghi dữ liệu.</p></div>
+          </div>
+          <div class="stack"><div class="panel"><h2>Hộp thư yêu cầu</h2><div class="mini-card"><div class="row"><strong>Chi · yêu cầu dùng role</strong><span class="badge blue">Chờ xử lý</span></div><p>“Tôi muốn soi Lan trong đêm này.” · gửi 21:08</p><div class="actions"><button class="soft" type="button">Trả lời riêng</button><button class="primary" type="button">Chấp nhận</button><button class="danger" type="button">Từ chối</button></div></div><div class="mini-card space"><strong>Bình · yêu cầu dùng role</strong><p>“Tôi đề nghị giết Minh.” · gửi 21:10</p></div></div><div class="panel"><h2>Nhật ký trong trận</h2><div class="timeline"><div class="event"><time>21:01 · #18</time><p>Quản trò chuyển sang đêm 1.</p></div><div class="event private"><time>21:08 · #19 · kín</time><p>Chi gửi yêu cầu soi Lan.</p></div><div class="event dead"><time>21:12 · #20 · kín</time><p>Quản trò giết Minh; chưa công bố cho cả làng.</p></div></div><div class="actions"><button class="primary" type="button">Công bố Minh đã chết</button></div></div></div></div>
+        </div>
+      </section>
+
+      <section class="screen" id="deaths" hidden>
+        <h1>Thông báo người chết</h1><p class="lede">Ảnh chụp ngày 1, sau khi quản trò công bố. Role và nguyên nhân chỉ hiện nếu quản trò chọn công bố.</p>
+        <div class="grid"><div class="panel"><div class="row"><h2>Theo thứ tự công bố</h2><span class="badge red">1 người được công bố đã chết</span></div><div class="timeline"><div class="event dead"><time>Ngày 1 · 08:00 · thông báo #22</time><p><strong>Minh đã chết.</strong> Nguyên nhân và role chưa được công bố.</p></div><div class="event revive"><time>Ví dụ đính chính · thông báo #23</time><p><strong>Nếu Minh được hồi sinh và công bố:</strong> thêm dòng mới tại đây; dòng chết trước vẫn còn.</p></div></div></div><div class="panel"><h2>Quy tắc hiển thị</h2><p>Trạng thái chết/hồi sinh chỉ hiện sau khi quản trò công bố. Quản trò có thể tiết lộ thêm nguyên nhân, role hoặc lời nhắn.</p><div class="notice">Thông tin chưa công bố sẽ hiện trong bản tổng kết sau khi trận kết thúc.</div></div></div>
+      </section>
+
+      <section class="screen" id="recap" hidden>
+        <h1>Hồ sơ sau trận</h1><p class="lede">Chỉ người từng tham gia phòng xem được sau khi quản trò kết thúc. Dữ liệu mẫu minh hoạ cách đối chiếu quyết định.</p>
+        <div class="metrics"><div class="panel metric"><strong>7</strong><span>người chơi</span></div><div class="panel metric"><strong>4</strong><span>pha đã qua</span></div><div class="panel metric"><strong>26</strong><span>sự kiện</span></div><div class="panel metric"><strong>Làng</strong><span>kết quả quản trò nhập</span></div></div>
+        <div class="grid"><div class="panel"><div class="row"><h2>Timeline đầy đủ</h2><button class="soft" type="button">Xuất JSON / CSV</button></div><div class="tabs"><span class="active">Tất cả</span><span>Quyết định</span><span>Yêu cầu</span><span>Chat</span><span>Đính chính</span></div><div class="timeline"><div class="event private"><time>Đêm 1 · 21:08 · #19 · yêu cầu riêng</time><p>Chi đề nghị soi vai trò của Lan.</p></div><div class="event private"><time>Đêm 1 · 21:09 · #20 · phản hồi quản trò</time><p>Quản trò chấp nhận, trả lời riêng: Lan là Dân làng.</p></div><div class="event dead"><time>Đêm 1 · 21:12 · #21 · quyết định</time><p>Quản trò giết Minh. Lý do: đã đối chiếu đề nghị Sói và trạng thái bảo vệ.</p></div><div class="event revive"><time>Ngày 1 · 08:02 · #22 · đính chính</time><p>Quản trò hồi sinh Minh, liên kết #21. Lý do: bỏ sót bảo vệ.</p></div><div class="event private"><time>Đêm 1 · 21:11 · chat đội Sói</time><p>Bình: “Chốt Minh nhé.”</p></div></div></div><div class="stack"><div class="panel"><h2>Ai xem được?</h2><p>Tất cả người từng tham gia phòng. Chat đội và chat riêng với quản trò được công bố đầy đủ ở đây, theo chính sách đã chấp nhận lúc vào phòng.</p></div><div class="panel"><h2>Giới hạn của nhật ký</h2><p>Nhật ký cho biết hệ thống đã ghi nhận gì và khi nào. Nó không tự chứng minh quản trò xét luật đúng và không ghi được trao đổi ngoài web.</p></div></div></div>
+      </section>
+    </main>
+    <footer class="footer">Mẫu bố cục để duyệt sản phẩm và art. Các nút chức năng chưa kết nối API; chỉ thanh điều hướng phía trên đổi màn hình.</footer>
+  </div>
+  <script>
+    const buttons = [...document.querySelectorAll('[data-screen]')];
+    const screens = [...document.querySelectorAll('.screen')];
+    for (const button of buttons) {
+      button.addEventListener('click', () => {
+        for (const item of buttons) if (item.closest('.nav')) item.setAttribute('aria-pressed', String(item.dataset.screen === button.dataset.screen));
+        for (const screen of screens) screen.hidden = screen.id !== button.dataset.screen;
+      });
+    }
+  </script>
+</body>
+</html>
