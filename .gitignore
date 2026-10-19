@@ -1,6 +1,16 @@
 .env
 archives/
 discord.log
-tests/
 WEB_PLAN.md
 CHECKLIST.md
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+node_modules/
+dist/
+*.tsbuildinfo
+.coverage
+.env.local
+.env.staging

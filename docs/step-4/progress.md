@@ -1,0 +1,30 @@
+# Bước 4 · role tùy chỉnh, chọn role và ngày 0
+
+## Đã hoàn thành
+
+- Quản trò có một bộ role gắn với phòng, đổi tên bộ, nạp bốn role mẫu hoặc tự thêm/sửa/xóa role. Mỗi role có mô tả toàn văn, phe, đội chat độc lập, số bản phát ngẫu nhiên, loại chủ động/bị động, pha gửi yêu cầu, quyền mở/trả lời chat quản trò và quyền khi chết. Không có trường loại yêu cầu hay số mục tiêu: quản trò ghi các điều kiện này vào mô tả.
+- Form thêm/sửa role mở trong hộp thoại nổi từ nút ở đầu danh mục hoặc trên thẻ role; tiêu đề và nút Lưu/Hủy luôn hiện khi cuộn form. Đóng bằng Escape hoặc nút đóng sẽ bỏ bản nháp; lỗi lưu vẫn giữ form để sửa.
+- Số bản được chỉnh và lưu ngay trên từng thẻ role, ngoài hộp thoại. Tổng số bản hiện ở đầu danh mục và cập nhật sau khi lưu; API chỉ sửa trường số bản để không ghi đè mô tả hoặc quyền role từ dữ liệu cũ.
+- Mỗi role có thêm “Tiên tri soi ra” do quản trò nhập, độc lập với phe thật và đi vào snapshot khi phát role. Danh mục và thẻ role hiển thị giá trị này. Role tạo trước migration hiện “Chưa thiết lập” để quản trò bổ sung; snapshot cũ vẫn đọc được. Phe Sói, Dân/Làng và Trung lập dùng màu nhận diện riêng cùng nhãn chữ; phe tùy chỉnh dùng màu trung tính.
+- Thành viên phòng xem danh mục đầy đủ từ sảnh. Người ngoài bị từ chối. Danh mục không liệt kê người giữ role.
+- Khi đóng đăng ký, quản trò chỉ phát được nếu có ít nhất hai người và tổng số bản bằng số ghế đang có người. Máy chủ xáo role bằng bộ sinh ngẫu nhiên hệ thống, gán một bản cho mỗi người và lưu kết quả cùng snapshot bộ role trong một giao dịch. Phát xong khóa sửa mẫu, đổi trạng thái phòng thành `assigned`; quản trò xem toàn bộ kết quả, người chơi chỉ xem bản thân. Sự kiện phát role có quyền xem `host` và được ghi cùng outbox.
+- Bộ mẫu dựa vào `archives/roles.md` và đặc tả sản phẩm; app chỉ lưu mô tả, không chạy logic từ mã bot cũ.
+- Hai cách phát role nằm trong cùng khu vực chọn chế độ. Với chế độ chọn, quản trò chọn kho role ứng viên và bật/tắt trùng role, không đặt số ghế phe. Máy chủ xáo thứ tự người chơi, rồi mời ngẫu nhiên tối đa ba role khác tên từ kho còn hợp lệ cho từng lượt. Chỉ người đang chọn thấy lời mời. Người chơi chọn một role đang mời hoặc bấm Random để rút từ toàn bộ kho còn hợp lệ; quản trò có thể rút hộ khi ghi lý do. Khi tắt trùng role, chỉ cần số ứng viên bằng số người chơi; lượt cuối có thể thấy dưới ba role.
+- Chế độ này lưu cấu hình, snapshot role, thứ tự, ba role được mời, người chọn, kết quả và lý do chọn hộ. Quản trò xem tiến độ từng lượt; người chờ chỉ thấy tiến độ chung và danh mục role. Lệnh đến cùng lượt được tuần tự hóa bằng khóa hàng phòng.
+- Sau khi mọi người có role, chỉ quản trò được bấm bắt đầu Ngày 0. Phòng chuyển sang `playing`, `phase_type=day`, `round_number=0`; sự kiện bắt đầu được ghi cho phòng. Bộ role và cài đặt trước trận bị khóa.
+- Thư viện 7 icon pixel có icon chung, ba phe và Tiên Tri/Xạ thủ/Bình thuốc. Quản trò chọn icon mẫu, để tự chọn theo tên/phe hoặc tải ảnh từ máy khi tạo/sửa role. Icon nằm trong catalog công khai, lời mời 1 trong 3, thẻ role riêng và bảng phân role của quản trò; danh sách ghế chỉ hiện avatar chung.
+- API upload chỉ dành cho quản trò trước khi phát role, nhận PNG/WebP/JPEG tĩnh tối đa 1 MiB và 512 × 512 px. Server kiểm tra định dạng thực, bỏ metadata, chuẩn hóa PNG và lưu bytes trong PostgreSQL. Chỉ thành viên phòng tải lại được icon upload; nếu icon lỗi, UI hiện icon chung. `icon_key`/`icon_id` nằm trong snapshot nên đổi mẫu nguồn không sửa ván cũ.
+
+## Kiểm tra
+
+Đã chạy `pytest -q backend/tests`: **11 passed** trên PostgreSQL local và `npm run build` sau khi sửa Draft Mode. Test role gồm CRUD bộ mẫu, người ngoài/phòng khác/không phải quản trò, role bị động không được khai quyền chủ động, tên trùng, cấu hình 24/25 slot bị từ chối, 25 người/25 slot (20 Dân làng, 3 Sói, 2 Xạ thủ), hai lệnh phát đồng thời (một thành công, một 409), mỗi người chỉ xem bản của mình, và snapshot không đổi sau khi cố sửa mẫu. Test chọn 1 trong 3 gồm 7 người/3 phe, không ép số ứng viên từng phe, bật/tắt trùng role, lượt cuối còn dưới ba ứng viên, Random rút được role ngoài ba lời mời, chọn hộ có lý do, hai lệnh cùng lượt, không lộ lời mời cho người chờ và người ngoài, và mẫu nguồn đổi nhưng snapshot giữ nguyên. Cả hai cách phát đều kiểm tra bắt đầu Ngày 0, từ chối người chơi thường và khóa sửa mẫu. Test icon gồm ba định dạng hợp lệ, sai MIME, tệp hỏng, vượt kích thước/dung lượng, quyền host/người ngoài, tải lại từ DB, snapshot và hai người chỉ xem bản phân role của mình.
+
+Kiểm tra Chromium bằng ba phiên độc lập: quản trò sửa role và tải icon qua hộp thoại, rồi phát một role Làng và một role Sói. Cả hai người chơi tải được icon ở danh mục công khai và thẻ role riêng; mỗi người chỉ thấy role của mình, không thấy bảng phân role. Quản trò thấy đủ hai role cạnh tên người chơi. Ảnh: [quản trò](screenshots/role-icons-host.png), [người Làng](screenshots/role-icons-village.png), [người Sói](screenshots/role-icons-wolf.png). Đã dừng rồi khởi động lại Uvicorn; phiên người chơi vẫn tải được icon PNG đã lưu trong PostgreSQL.
+
+Sau khi gộp hai cách phát, Chromium xác nhận cả hai nút chọn chế độ nằm cùng khu vực, cấu hình draft không còn ô số ghế phe, và màn 390 px không tràn ngang. Phòng và tài khoản tạo riêng cho lần kiểm tra này đã được xóa khỏi DB local.
+
+Giao diện đã tách thành trang vào làng và các màn phòng: sảnh chờ, danh mục role, thiết lập role, phát/chọn role, phân role riêng và trận đấu. Thanh điều hướng cố định ở đầu; sau khi vào Ngày 0, tab sảnh chờ được ẩn. Chromium đã đi từ tạo phòng → vào phòng → phát ngẫu nhiên → kiểm tra phân role → bắt đầu Ngày 0; sau khi tải lại danh mục vẫn ở đúng màn, URL sảnh cũ tự chuyển sang màn trận. Màn 390 px không tràn ngang. Bản nháp cấu hình chọn 1 trong 3 giữ nguyên khi đổi tab và tải lại. Các phòng và phiên khách tạo để kiểm tra đã được xóa khỏi DB local.
+
+## Tiếp theo
+
+Bước 4 đã hoàn thành. Điều khiển chuyển Ngày 0 → Đêm 1 và các pha sau thuộc bước 5.
