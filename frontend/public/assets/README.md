@@ -7,6 +7,8 @@
 - `v1/seer-concept.png` là bản concept từ `docs/step-1/assets/`, dùng để thử khung ảnh; không dùng làm icon role. Icon quản trò tải lên lưu trong bảng `role_icons` của PostgreSQL, không ở thư mục asset tĩnh.
 - `v1/lobby-night-v1.png` là nền sảnh tạo bằng ImageGen từ `docs/step-1/assets/lobby-concept.png`, theo hướng Ma Sói huyền bí tối màu đã chốt. Ảnh có nội dung trang trí; mọi chữ, mã mời, trạng thái ghế và thao tác nằm trong HTML/CSS phía trên.
 - `v1/village-day-v1.png` là biến thể ban ngày cho màn trận và bàn quản trò, tạo bằng built-in ImageGen từ `v1/lobby-night-v1.png`. Màn đêm dùng chính nền sảnh; lớp phủ tối đặt bằng CSS để chữ dễ đọc. Biểu tượng hiệu ứng/chết/hồi sinh được vẽ theo lưới pixel trong `StatusGlyph.tsx` và luôn đi cùng nhãn chữ.
+- Ba icon tab chat được vẽ trực tiếp bằng SVG lưới pixel trong `ChatGlyph.tsx`; nhãn chữ và dấu **Mới** là HTML để luôn đọc được ở hai cỡ màn hình.
+- Icon trạng thái yêu cầu và loại thông báo ở `StoryGlyph.tsx` là SVG lưới 12×12 pixel, dùng màu theo trạng thái/loại đã công bố; icon ổ khóa cho mục giữ kín chỉ được ghép trong giao diện quản trò. Mọi icon đi cùng nhãn chữ.
 - Không đặt tên người giữ role hoặc thông tin phân role kín trong URL asset công khai.
 
 Prompt của `village-day-v1.png`:

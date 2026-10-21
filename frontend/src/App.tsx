@@ -9,13 +9,14 @@ import HostPlayerBoard from './components/HostPlayerBoard'
 import DeathNotices from './components/DeathNotices'
 import PrivateInbox from './components/PrivateInbox'
 import ChatPanel from './components/ChatPanel'
+import RoleRequestsPanel from './components/RoleRequestsPanel'
 import DemoSwitcher from './components/DemoSwitcher'
 import { useRequestIds } from './useRequestIds'
 import { useConfirmation } from './useConfirmation'
 
 type ApiStatus = 'loading' | 'online' | 'offline'
-type View = 'home' | 'lobby' | 'catalog' | 'manage' | 'distribution' | 'assignment' | 'game' | 'chat' | 'vote' | 'control' | 'dead' | 'private'
-const VIEWS: View[] = ['home', 'lobby', 'catalog', 'manage', 'distribution', 'assignment', 'game', 'chat', 'vote', 'control', 'dead', 'private']
+type View = 'home' | 'lobby' | 'catalog' | 'manage' | 'distribution' | 'assignment' | 'game' | 'chat' | 'requests' | 'vote' | 'control' | 'dead' | 'private'
+const VIEWS: View[] = ['home', 'lobby', 'catalog', 'manage', 'distribution', 'assignment', 'game', 'chat', 'requests', 'vote', 'control', 'dead', 'private']
 const ROOM_KEY = 'ma-soi-active-room'
 const showAssetDemo = new URLSearchParams(window.location.search).has('asset-demo')
 const readView = (): View => {
@@ -25,6 +26,7 @@ const readView = (): View => {
 const roomViews = (room: Room): View[] => [
   ...(['playing', 'finished'].includes(room.status) ? ['game'] as View[] : ['lobby'] as View[]),
   'chat',
+  ...(['playing', 'finished'].includes(room.status) ? ['requests'] as View[] : []),
   'catalog',
   ...(['open', 'closed'].includes(room.status) && room.is_host ? ['manage'] as View[] : []),
   ...((['open', 'closed'].includes(room.status) && room.is_host) || room.status === 'drafting'
@@ -269,7 +271,7 @@ export default function App() {
     { view: 'home', label: 'Trang chủ' },
     ...(room ? roomViews(room).map((item) => ({ view: item, label: {
       lobby: 'Sảnh chờ', catalog: 'Danh mục role', manage: 'Thiết lập role', distribution: room.status === 'drafting' ? 'Chọn role' : 'Phát role',
-      assignment: room.is_host ? 'Phân role' : 'Role của tôi', game: 'Trận đấu', chat: 'Chat', vote: 'Vote', control: 'Bàn quản trò', dead: 'Thông báo', private: 'Tin riêng', home: 'Trang chủ',
+      assignment: room.is_host ? 'Phân role' : 'Role của tôi', game: 'Trận đấu', chat: 'Chat', requests: 'Yêu cầu role', vote: 'Vote', control: 'Bàn quản trò', dead: 'Thông báo', private: 'Tin riêng', home: 'Trang chủ',
     }[item] })) : []),
   ]
 
@@ -406,8 +408,11 @@ export default function App() {
             <strong>{member.display_name}</strong><small>{member.public_is_alive ? 'Đang sống' : 'Đã công bố chết'}{member.public_role_name ? ` · ${member.public_role_name}` : ''}</small></span></li>)}</ol>
       </section>}
       {view === 'vote' && <VotePanel room={room} onRoomChanged={async () => { await loadRooms(room.id) }} />}
-      {view === 'chat' && <ChatPanel key={room.id} room={room} />}
-      {view === 'dead' && <DeathNotices room={room} onRoomChanged={async () => { await loadRooms(room.id) }} />}
+      {view === 'chat' && identity && <ChatPanel key={`${room.id}:${identity.id}`} room={room} userId={identity.id}
+        onRoomChanged={async () => { await loadRooms(room.id) }} />}
+      {view === 'requests' && <RoleRequestsPanel key={room.id} room={room} />}
+      {view === 'dead' && <DeathNotices room={room} onRoomChanged={async () => { await loadRooms(room.id) }}
+        onOpenBoard={() => navigate('control')} />}
       {view === 'private' && !room.is_host && <PrivateInbox room={room} />}
       {view === 'control' && room.is_host && <HostPlayerBoard key={room.id} room={room}
         onRoomChanged={async () => { await loadRooms(room.id) }} />}

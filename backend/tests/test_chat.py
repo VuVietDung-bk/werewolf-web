@@ -23,7 +23,10 @@ def message(channel, text, **extra):
     return {"client_request_id": str(uuid4()), "channel": channel, "text": text, **extra}
 
 
-def test_chat_permissions_and_history() -> None:
+def test_chat_permissions_and_history(monkeypatch) -> None:
+    from app import chat
+    monkeypatch.setattr(chat, "CHAT_BURST_LIMIT", 100)
+    monkeypatch.setattr(chat, "CHAT_MINUTE_LIMIT", 100)
     async def run() -> None:
         ids = []
         room_id = None
@@ -109,13 +112,34 @@ def test_chat_permissions_and_history() -> None:
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Tin bầy cũ"))).status_code == 200
                 assert [item["text"] for item in (await by_id[wolf_b].get(f"{chat}/messages?channel=team")).json()["messages"]] == ["Tin bầy cũ"]
                 assert (await by_id[villager].get(f"{chat}/messages?channel=team")).json()["messages"] == []
+                wolf_activity = (await by_id[wolf_b].get(f"{chat}/context")).json()["activity"]
+                villager_activity = (await by_id[villager].get(f"{chat}/context")).json()["activity"]
+                assert any(item["channel"] == "team" and item["team_label"] == "Bầy sói"
+                           for item in wolf_activity)
+                assert not any(item["channel"] == "team" for item in villager_activity)
+                assert any(item["channel"] == "host" and item["participant_user_id"] == villager
+                           for item in villager_activity)
+                assert not any(item["channel"] == "host" and item["participant_user_id"] == villager
+                               for item in wolf_activity)
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("host", "Hỏi đêm"))).status_code == 200
+                mute_target = f"{chat}/players/{wolf_a}/mute"
+                assert (await host.patch(mute_target, json={"client_request_id": str(uuid4()),
+                    "muted": True, "reason": "Kiểm tra đủ kênh"}, headers={"Origin": ORIGIN})).status_code == 200
+                muted_context = (await by_id[wolf_a].get(f"{chat}/context")).json()
+                assert muted_context["can_send_team"] is False and muted_context["can_send_host"] is False
+                assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Bị chặn đội"))).status_code == 403
+                assert (await post(by_id[wolf_a], f"{chat}/messages", message("host", "Bị chặn riêng"))).status_code == 403
+                assert (await host.patch(mute_target, json={"client_request_id": str(uuid4()),
+                    "muted": False, "reason": "Tiếp tục thử"}, headers={"Origin": ORIGIN})).status_code == 200
 
                 actions = f"{base}/game/players"
                 assert (await post(host, f"{actions}/{wolf_b}/actions", {
                     "client_request_id": str(uuid4()), "action": "change_team", "text": "Đội mới", "reason": "Đổi phe"})).status_code == 200
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Sau khi B rời"))).status_code == 200
                 assert [item["text"] for item in (await by_id[wolf_b].get(f"{chat}/messages?channel=team")).json()["messages"]] == ["Tin bầy cũ"]
+                old_team_activity = (await by_id[wolf_b].get(f"{chat}/context")).json()["activity"]
+                assert any(item["channel"] == "team" and item["team_label"] == "Bầy sói"
+                           for item in old_team_activity)
                 assert (await post(host, f"{actions}/{villager}/actions", {
                     "client_request_id": str(uuid4()), "action": "change_team", "text": "Bầy sói", "reason": "Gia nhập"})).status_code == 200
                 assert [item["text"] for item in (await by_id[villager].get(f"{chat}/messages?channel=team")).json()["messages"]] == []

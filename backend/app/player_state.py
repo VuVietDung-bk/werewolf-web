@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_user, require_room_access, require_room_host
 from app.db.events import append_event
-from app.db.models import ContentRevision, GameEvent, PlayerNote, PlayerState, RoleAssignment, RoleSnapshot, Room, RoomMember, User
+from app.db.models import ContentRevision, GameEvent, PlayerNote, PlayerState, RoleAssignment, RoleRequest, RoleSnapshot, Room, RoomMember, User
 from app.db.session import get_db
 from app.roles import RoleOutput, effective_role_data
 from app.rooms import locked_host_room
@@ -66,9 +66,11 @@ class PlayerBoardItem(BaseModel):
     role: RoleOutput
     is_alive: bool
     public_is_alive: bool
+    publication_disposition: Literal["published", "pending", "held", "skipped"]
     public_role_name: str | None
     effects: list[str]
     note_count: int
+    pending_request_count: int
 
 
 class PlayerNoteOutput(BaseModel):
@@ -100,6 +102,21 @@ class AnnouncementInput(BaseModel):
         return self
 
 
+class PublicationDispositionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_request_id: UUID
+    decision: Literal["hold", "skip"]
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def valid_reason(self):
+        self.reason = self.reason.strip()
+        if not self.reason:
+            raise ValueError("Cần lý do giữ kín hoặc bỏ qua thông báo")
+        return self
+
+
 class PublicNotice(BaseModel):
     id: UUID
     status: Literal["dead", "alive"]
@@ -122,14 +139,19 @@ async def host_board(db: AsyncSession, room_id: UUID) -> list[PlayerBoardItem]:
     counts = select(PlayerNote.user_id, func.count().label("count")).where(
         PlayerNote.room_id == room_id, PlayerNote.deleted_at.is_(None)
     ).group_by(PlayerNote.user_id).subquery()
+    request_counts = select(RoleRequest.user_id, func.count().label("count")).where(
+        RoleRequest.room_id == room_id, RoleRequest.status.in_(("pending", "in_review"))
+    ).group_by(RoleRequest.user_id).subquery()
     rows = (await db.execute(
-        select(RoomMember, User, RoleAssignment, PlayerState, counts.c.count)
+        select(RoomMember, User, RoleAssignment, PlayerState, counts.c.count,
+               request_counts.c.count)
         .join(User, User.id == RoomMember.user_id)
         .join(RoleAssignment, (RoleAssignment.room_id == RoomMember.room_id)
               & (RoleAssignment.user_id == RoomMember.user_id))
         .join(PlayerState, (PlayerState.room_id == RoomMember.room_id)
               & (PlayerState.user_id == RoomMember.user_id))
         .outerjoin(counts, counts.c.user_id == RoomMember.user_id)
+        .outerjoin(request_counts, request_counts.c.user_id == RoomMember.user_id)
         .where(RoomMember.room_id == room_id, RoomMember.left_at.is_(None))
         .order_by(RoomMember.seat_number)
     )).all()
@@ -138,9 +160,11 @@ async def host_board(db: AsyncSession, room_id: UUID) -> list[PlayerBoardItem]:
                             role=RoleOutput.model_validate(effective_role_data(
                                 roles, assignment.role_id, state)),
                             is_alive=state.is_alive, public_is_alive=state.public_is_alive,
+                            publication_disposition=state.publication_disposition,
                             public_role_name=state.public_role_name, effects=state.effects,
-                            note_count=note_count or 0)
-            for member, user, assignment, state, note_count in rows]
+                            note_count=note_count or 0,
+                            pending_request_count=pending_request_count or 0)
+            for member, user, assignment, state, note_count, pending_request_count in rows]
 
 
 @router.get("", response_model=list[PlayerBoardItem])
@@ -190,7 +214,8 @@ async def player_action(room_id: UUID, player_id: UUID, body: PlayerActionInput,
         raise HTTPException(status_code=404, detail="Người chơi không thuộc trận")
     if room.is_paused and body.action != "note":
         raise HTTPException(status_code=409, detail="Trận đang tạm dừng")
-    previous: dict = {"is_alive": state.is_alive, "effects": list(state.effects)}
+    previous: dict = {"is_alive": state.is_alive, "effects": list(state.effects),
+                      "publication_disposition": state.publication_disposition}
     role_snapshot = None
     assignment = None
     definitions = None
@@ -239,7 +264,11 @@ async def player_action(room_id: UUID, player_id: UUID, body: PlayerActionInput,
         state.team_chat_label_override = body.text
     else:
         db.add(PlayerNote(room_id=room_id, user_id=player_id, text=body.text))
-    current: dict = {"is_alive": state.is_alive, "effects": list(state.effects)}
+    if body.action in {"kill", "revive"}:
+        state.publication_disposition = ("pending" if state.is_alive != state.public_is_alive
+                                         else "published")
+    current: dict = {"is_alive": state.is_alive, "effects": list(state.effects),
+                     "publication_disposition": state.publication_disposition}
     if definitions is not None:
         after = effective_role_data(definitions, assignment.role_id, state)
         current.update({"role_id": after["id"], "faction_label": after["faction_label"],
@@ -247,6 +276,47 @@ async def player_action(room_id: UUID, player_id: UUID, body: PlayerActionInput,
     event = await append_event(db, room_id, user.id, f"player.{body.action}", "host",
                                {"request": request, "previous": previous,
                                 "current": current},
+                               client_request_id=body.client_request_id)
+    await db.commit()
+    return ActionOutput(event_id=event.id, repeated=False)
+
+
+@router.post("/{player_id}/publication-disposition", response_model=ActionOutput)
+async def decide_publication_disposition(room_id: UUID, player_id: UUID,
+                                         body: PublicationDispositionInput,
+                                         user: User = Depends(current_user),
+                                         db: AsyncSession = Depends(get_db)) -> ActionOutput:
+    room = await locked_host_room(db, room_id, user.id)
+    request = {"user_id": str(player_id), "decision": body.decision, "reason": body.reason}
+    prior = await db.scalar(select(GameEvent).where(
+        GameEvent.room_id == room_id, GameEvent.client_request_id == body.client_request_id))
+    if prior is not None:
+        if prior.kind != "player.publication_disposition_decided" or prior.actor_user_id != user.id or prior.payload.get("request") != request:
+            raise HTTPException(status_code=409, detail="Mã yêu cầu đã dùng cho thao tác khác")
+        return ActionOutput(event_id=prior.id, repeated=True)
+    if room.status != "playing":
+        raise HTTPException(status_code=409, detail="Trận không ở trạng thái đang chơi")
+    state = await db.get(PlayerState, (room_id, player_id))
+    if state is None:
+        raise HTTPException(status_code=404, detail="Người chơi không thuộc trận")
+    if state.is_alive == state.public_is_alive:
+        raise HTTPException(status_code=409, detail="Không có trạng thái sống/chết cần xử lý")
+    disposition = "held" if body.decision == "hold" else "skipped"
+    if state.publication_disposition == disposition:
+        raise HTTPException(status_code=409, detail="Đã ghi cùng quyết định cho trạng thái này")
+    status_event = await db.scalar(select(GameEvent).where(
+        GameEvent.room_id == room_id, GameEvent.kind.in_(("player.kill", "player.revive")),
+        GameEvent.payload["request"]["user_id"].astext == str(player_id)
+    ).order_by(GameEvent.sequence.desc()).limit(1))
+    previous = state.publication_disposition
+    state.publication_disposition = disposition
+    event = await append_event(db, room_id, user.id, "player.publication_disposition_decided", "host",
+                               {"request": request, "previous_disposition": previous,
+                                "new_disposition": disposition,
+                                "is_alive": state.is_alive,
+                                "public_is_alive": state.public_is_alive,
+                                "status_event_id": str(status_event.id) if status_event else None,
+                                "phase_type": room.phase_type, "round_number": room.round_number},
                                client_request_id=body.client_request_id)
     await db.commit()
     return ActionOutput(event_id=event.id, repeated=False)
@@ -286,13 +356,17 @@ async def announce_player_status(room_id: UUID, player_id: UUID, body: Announcem
         if revealed_role_name is None:
             raise HTTPException(status_code=409, detail="Không tìm thấy role trong bản lưu trận")
     previous_public_is_alive = state.public_is_alive
+    previous_disposition = state.publication_disposition
     state.public_is_alive = state.is_alive
+    state.publication_disposition = "published"
     if revealed_role_name is not None:
         state.public_role_name = revealed_role_name
     decision = await append_event(db, room_id, user.id, "player.announcement_decided", "host",
                                   {"request": request,
                                    "previous_public_is_alive": previous_public_is_alive,
-                                   "new_public_is_alive": state.public_is_alive},
+                                   "new_public_is_alive": state.public_is_alive,
+                                   "previous_disposition": previous_disposition,
+                                   "new_disposition": state.publication_disposition},
                                   client_request_id=body.client_request_id)
     await append_event(db, room_id, user.id,
                        "player.revival_announced" if state.is_alive else "player.death_announced",

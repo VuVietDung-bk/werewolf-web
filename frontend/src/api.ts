@@ -84,9 +84,11 @@ export type PlayerBoardItem = {
   role: Role
   is_alive: boolean
   public_is_alive: boolean
+  publication_disposition: 'published' | 'pending' | 'held' | 'skipped'
   public_role_name: string | null
   effects: string[]
   note_count: number
+  pending_request_count: number
 }
 export type PlayerNote = { id: string; text: string; created_at: string; edited_at: string | null }
 export type VoteRound = {
@@ -162,6 +164,7 @@ export type ChatMessage = {
   id: string
   event_id: string
   sequence: number
+  updated_sequence: number
   channel: ChatChannel
   team_label: string | null
   participant_user_id: string | null
@@ -169,8 +172,11 @@ export type ChatMessage = {
   sender_name: string
   text: string
   created_at: string
+  edited_at: string | null
+  deleted: boolean
+  history: { sequence: number; action: 'send' | 'edit' | 'delete'; text: string | null; created_at: string }[] | null
 }
-export type ChatPage = { messages: ChatMessage[]; next_before_sequence: number | null; next_after_sequence: number | null }
+export type ChatPage = { messages: ChatMessage[]; next_before_sequence: number | null; next_after_sequence: number | null; next_after_updated_sequence: number | null; room_cursor: number }
 export type ChatPolicy = {
   common_send_at_night: boolean
   team_send_in_day: boolean
@@ -185,6 +191,49 @@ export type ChatContext = {
   can_send_common: boolean
   can_send_team: boolean
   can_send_host: boolean
+  is_muted: boolean
+  mute_reason: string | null
+  muted_players: { user_id: string; reason: string }[]
+  activity: { channel: ChatChannel; team_label: string | null; participant_user_id: string | null; sequence: number }[]
+}
+export type RoleRequestContext = {
+  can_submit: boolean
+  reason: string | null
+  role_name: string | null
+  allowed_phases: ('day' | 'night')[]
+  request_when_dead: boolean
+  is_alive: boolean | null
+}
+export type RoleRequest = {
+  id: string
+  event_id: string
+  sequence: number
+  user_id: string
+  sender_name: string
+  role_id: string
+  role_name: string
+  phase_type: 'day' | 'night'
+  round_number: number
+  text: string
+  status: string
+  reply_text: string | null
+  linked_event_ids: string[]
+  updated_sequence: number
+  created_at: string
+  updated_at: string
+}
+export type RoleRequestPage = {
+  requests: RoleRequest[]
+  next_before_sequence: number | null
+  next_after_sequence: number | null
+  room_cursor: number
+}
+export type LinkableRoleAction = {
+  event_id: string
+  sequence: number
+  kind: string
+  target_name: string
+  created_at: string
 }
 export type PublicCorrection = {
   id: string
@@ -202,8 +251,18 @@ export type PublicAnnouncement = {
   phase_type: 'day' | 'night'
   round_number: number
   text: string
+  kind: 'general' | 'death' | 'revival' | 'attack' | 'role' | 'vote' | 'other'
+  related_player: { user_id: string; display_name: string; seat_number: number } | null
+  source_player: { user_id: string; display_name: string; seat_number: number } | null
   created_at: string
   edited_at: string | null
+}
+export type LinkableAnnouncementEvent = {
+  event_id: string
+  sequence: number
+  kind: string
+  target_name: string | null
+  created_at: string
 }
 
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {

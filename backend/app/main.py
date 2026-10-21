@@ -22,6 +22,8 @@ from app.event_corrections import router as event_corrections_router
 from app.content_revisions import router as content_revisions_router
 from app.votes import router as votes_router
 from app.chat import router as chat_router
+from app.live import router as live_router
+from app.role_requests import router as role_requests_router
 
 app = FastAPI(title="Ma Sói Web API", version="0.1.0")
 app.include_router(rooms_router)
@@ -36,6 +38,8 @@ app.include_router(event_corrections_router)
 app.include_router(content_revisions_router)
 app.include_router(votes_router)
 app.include_router(chat_router)
+app.include_router(live_router)
+app.include_router(role_requests_router)
 
 
 class GuestInput(BaseModel):

@@ -10,6 +10,7 @@ from sqlalchemy import select
 import app.event_corrections as event_corrections
 from app.db.models import ContentRevision, GameEvent, Outbox, Room, User
 from app.db.session import session_factory
+from app.live import may_receive
 from app.main import app
 
 ORIGIN = "http://localhost:5173"
@@ -102,6 +103,82 @@ def test_custom_announcement_publish_edit_delete_and_permissions(monkeypatch) ->
                 assert (await player.get(announcements_url)).json() == []
                 assert (await post(host, revision_url, {"client_request_id": str(uuid4()),
                     "action": "edit", "text": "Khôi phục"})).status_code == 409
+
+                links_url = f"{announcements_url}/linkable-events"
+                assert (await player.get(links_url)).status_code == 403
+                assert (await outsider.get(links_url)).status_code == 403
+                action = await post(host, f"{base}/game/players/{user_ids[1]}/actions", {
+                    "client_request_id": str(uuid4()), "action": "add_effect", "text": "Bị tấn công",
+                    "reason": "Quản trò xác nhận tác động"})
+                assert action.status_code == 200
+                action_id = action.json()["event_id"]
+                assert any(item["event_id"] == action_id for item in (await host.get(links_url)).json())
+                rich = {"client_request_id": str(uuid4()), "text": "Có một vụ tấn công trong làng.",
+                        "kind": "attack", "related_user_id": user_ids[1],
+                        "source_user_id": user_ids[2], "linked_event_id": action_id}
+                assert (await post(host, announcements_url, {**rich,
+                    "related_user_id": str(uuid4())})).status_code == 422
+                assert (await post(host, announcements_url, {**rich,
+                    "linked_event_id": notice_id})).status_code == 422
+                assert (await post(host, announcements_url, {**rich,
+                    "kind": "không hợp lệ"})).status_code == 422
+                linked_notice = await post(host, announcements_url, rich)
+                assert linked_notice.status_code == 200
+                linked_notice_id = linked_notice.json()["event_id"]
+                assert (await post(host, announcements_url, rich)).json() == {
+                    "event_id": linked_notice_id, "repeated": True}
+                assert (await post(host, announcements_url, {**rich,
+                    "text": "Nội dung khác"})).status_code == 409
+                visible = (await player.get(announcements_url)).json()
+                assert len(visible) == 1 and visible[0]["kind"] == "attack"
+                assert visible[0]["related_player"]["display_name"] == "Người trong phòng"
+                assert visible[0]["source_player"]["display_name"] == "Người thứ hai"
+                assert "linked_event_id" not in visible[0]
+                assert "reason" not in visible[0]
+                async with session_factory()() as db:
+                    public = await db.get(GameEvent, UUID(linked_notice_id))
+                    decision = await db.scalar(select(GameEvent).where(
+                        GameEvent.room_id == UUID(room_id),
+                        GameEvent.client_request_id == UUID(rich["client_request_id"])))
+                    assert public.visibility == "room" and "linked_event_id" not in public.payload
+                    assert decision.kind == "event.announcement_decided"
+                    assert decision.visibility == "host"
+                    assert decision.payload["request"]["linked_event_id"] == action_id
+                    assert decision.payload["public_event_id"] == linked_notice_id
+                    assert may_receive(public, UUID(user_ids[1]), UUID(user_ids[0]), None, None)
+                    assert not may_receive(decision, UUID(user_ids[1]), UUID(user_ids[0]), None, None)
+
+                votes_url = f"{base}/votes"
+                opened = await post(host, votes_url, {"client_request_id": str(uuid4())})
+                assert opened.status_code == 200
+                vote_id = opened.json()["vote_round_id"]
+                assert (await post(host, f"{votes_url}/{vote_id}/close", {
+                    "client_request_id": str(uuid4())})).status_code == 200
+                decision = await post(host, f"{votes_url}/{vote_id}/decision", {
+                    "client_request_id": str(uuid4()), "decision_text": "Không loại ai",
+                    "reason": "Chưa đủ thông tin"})
+                assert decision.status_code == 200
+                vote_event_id = decision.json()["event_id"]
+                assert any(item["event_id"] == vote_event_id and item["kind"] == "vote.decided"
+                           for item in (await host.get(links_url)).json())
+                vote_notice = await post(host, announcements_url, {
+                    "client_request_id": str(uuid4()), "kind": "vote", "text": "Ngày 0: không loại ai.",
+                    "linked_event_id": vote_event_id})
+                assert vote_notice.status_code == 200
+                visible = (await player.get(announcements_url)).json()
+                assert [item["kind"] for item in visible] == ["attack", "vote"]
+                assert visible[1]["source_player"] is None and visible[1]["related_player"] is None
+                assert "linked_event_id" not in visible[1] and "Chưa đủ thông tin" not in str(visible[1])
+                rich_revision_url = f"{base}/game/content/{linked_notice_id}/revisions"
+                assert (await post(host, rich_revision_url, {"client_request_id": str(uuid4()),
+                    "action": "edit", "text": "Cuộc tấn công đã được xác nhận."})).status_code == 200
+                edited_rich = (await player.get(announcements_url)).json()[0]
+                assert edited_rich["text"] == "Cuộc tấn công đã được xác nhận."
+                assert edited_rich["kind"] == "attack"
+                assert edited_rich["related_player"]["user_id"] == user_ids[1]
+                assert (await post(host, rich_revision_url, {"client_request_id": str(uuid4()),
+                    "action": "delete"})).status_code == 200
+                assert [item["kind"] for item in (await player.get(announcements_url)).json()] == ["vote"]
 
                 async with session_factory()() as db:
                     source = await db.get(GameEvent, UUID(notice_id))

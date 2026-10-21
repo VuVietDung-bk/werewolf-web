@@ -239,6 +239,8 @@ class RoleAssignment(Base):
 class PlayerState(Base):
     __tablename__ = "player_states"
     __table_args__ = (
+        CheckConstraint("publication_disposition IN ('published', 'pending', 'held', 'skipped')",
+                        name="ck_player_states_publication_disposition"),
         ForeignKeyConstraint(["room_id", "user_id"],
                              ["role_assignments.room_id", "role_assignments.user_id"],
                              ondelete="CASCADE"),
@@ -249,6 +251,8 @@ class PlayerState(Base):
     is_alive: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
     effects: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     public_is_alive: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
+    publication_disposition: Mapped[str] = mapped_column(String(16), nullable=False,
+                                                         server_default="published")
     public_role_name: Mapped[str | None] = mapped_column(String(80))
     current_role_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
     faction_label_override: Mapped[str | None] = mapped_column(String(80))
@@ -310,6 +314,8 @@ class ChatMessage(Base):
         Index("ix_chat_messages_room_team_sequence", "room_id", "team_label", "sequence"),
         Index("ix_chat_messages_room_participant_sequence", "room_id", "participant_user_id", "sequence"),
         Index("ix_chat_messages_team_recipients", "recipient_ids", postgresql_using="gin"),
+        Index("ix_chat_messages_room_sender_created", "room_id", "sender_user_id", "created_at"),
+        Index("ix_chat_messages_room_updated_sequence", "room_id", "updated_sequence"),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -321,6 +327,7 @@ class ChatMessage(Base):
         unique=True, nullable=False
     )
     sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
     channel: Mapped[str] = mapped_column(String(12), nullable=False)
     team_label: Mapped[str | None] = mapped_column(String(80))
     participant_user_id: Mapped[UUID | None] = mapped_column(
@@ -335,6 +342,55 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class ChatMute(Base):
+    __tablename__ = "chat_mutes"
+    __table_args__ = (
+        ForeignKeyConstraint(["room_id", "user_id"],
+                             ["room_members.room_id", "room_members.user_id"], ondelete="CASCADE"),
+    )
+
+    room_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    is_muted: Mapped[bool] = mapped_column(nullable=False)
+    reason: Mapped[str] = mapped_column(String(1000), nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+                                                ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                   server_default=func.now(), nullable=False)
+
+
+class RoleRequest(Base):
+    __tablename__ = "role_requests"
+    __table_args__ = (
+        ForeignKeyConstraint(["room_id", "user_id"],
+                             ["player_states.room_id", "player_states.user_id"], ondelete="CASCADE"),
+        Index("ix_role_requests_room_sequence", "room_id", "sequence"),
+        Index("ix_role_requests_room_updated_sequence", "room_id", "updated_sequence"),
+        Index("ix_role_requests_room_user_created", "room_id", "user_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    room_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    event_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+                                           ForeignKey("game_events.id", ondelete="CASCADE"),
+                                           unique=True, nullable=False)
+    sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    role_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    role_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    phase_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    round_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(String(2000), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
+    reply_text: Mapped[str | None] = mapped_column(String(2000))
+    linked_event_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="'[]'::jsonb")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                   server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                   server_default=func.now(), nullable=False)
 
 
 class ContentRevision(Base):

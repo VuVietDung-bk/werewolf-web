@@ -163,6 +163,28 @@ def test_phase_pause_resume_and_manual_finish() -> None:
                 assert notices[0]["public_cause"] == "Bị tấn công"
                 assert notices[0]["revealed_role_name"] is None
                 assert "moderator_reason" not in notices[0]
+                death_notice_id = notices[0]["id"]
+                revision_url = f"{url}/game/content/{death_notice_id}/revisions"
+                edit_cause = {"client_request_id": str(uuid4()), "action": "edit",
+                              "text": "Không rõ nguyên nhân"}
+                assert (await post(player_b, revision_url, edit_cause)).status_code == 403
+                edited = await post(host, revision_url, edit_cause)
+                assert edited.status_code == 200 and edited.json()["public_event_id"]
+                assert (await post(host, revision_url, edit_cause)).json()["repeated"] is True
+                updated_notices = (await player_b.get(notice_url)).json()
+                assert len(updated_notices) == 1
+                assert updated_notices[0]["public_cause"] == "Không rõ nguyên nhân"
+                assert updated_notices[0]["edited_at"] is not None
+                assert not next(item for item in (await player_b.get(url)).json()["members"]
+                                if item["user_id"] == target_id)["public_is_alive"]
+                delete_notice = {"client_request_id": str(uuid4()), "action": "delete", "text": None}
+                deleted = await post(host, revision_url, delete_notice)
+                assert deleted.status_code == 200 and deleted.json()["public_event_id"]
+                assert (await player_b.get(notice_url)).json() == []
+                assert not next(item for item in (await player_b.get(url)).json()["members"]
+                                if item["user_id"] == target_id)["public_is_alive"]
+                assert (await post(host, revision_url, {**delete_notice,
+                    "client_request_id": str(uuid4())})).status_code == 409
                 assert (await post(host, announce_url, {**death_body,
                     "client_request_id": str(uuid4())})).status_code == 409
                 revived = await post(host, actions_url, {"client_request_id": str(uuid4()),
@@ -182,8 +204,8 @@ def test_phase_pause_resume_and_manual_finish() -> None:
                 assert public_member["public_is_alive"]
                 assert public_member["public_role_name"] == "Dân làng"
                 notices = (await player_a.get(notice_url)).json()
-                assert [item["status"] for item in notices] == ["dead", "alive"]
-                assert notices[1]["revealed_role_name"] == "Dân làng"
+                assert [item["status"] for item in notices] == ["alive"]
+                assert notices[0]["revealed_role_name"] == "Dân làng"
                 assert (await post(host, f"{url}/game/finish", {
                     "result_label": "  ", "result_reason": "Ván kết thúc"})).status_code == 422
                 finish_body = {"client_request_id": str(uuid4()),

@@ -66,7 +66,7 @@
 
 ## Tiếp theo
 
-5.5a: bảng quản trò làm mới ngay sau thao tác, khi phiên bản phòng đổi và mỗi 8 giây lúc đang mở. Bộ lọc kết hợp trạng thái sống/chết, phe, hiệu ứng và người có trạng thái chờ công bố; số người đang hiện được ghi rõ. Bộ lọc phe/hiệu ứng lấy từ dữ liệu hiện tại và tự xóa khi giá trị không còn tồn tại. `npm run build` đạt; chưa có kiểm tra trực quan vì môi trường không có Chromium. 5.5b vẫn chờ dữ liệu từ luồng gửi/xử lý yêu cầu role ở bước 7; trạng thái **chờ công bố** hiện tại không được tính như yêu cầu role.
+5.5a–b: bảng quản trò làm mới ngay sau thao tác, khi phiên bản phòng đổi và mỗi 5 giây lúc đang mở. Bộ lọc kết hợp trạng thái sống/chết, phe, hiệu ứng, trạng thái chờ công bố và yêu cầu role đang `pending`/`in_review`; số người đang hiện và số yêu cầu chờ được ghi rõ. Bộ lọc phe/hiệu ứng lấy từ dữ liệu hiện tại và tự xóa khi giá trị không còn tồn tại. Test API và Chromium xác nhận gửi yêu cầu → bảng tăng số và lọc đúng người → xử lý → số về 0. [Biên bản và ảnh chụp](checkpoint-b.md).
 
 5.6a: tạo `village-day-v1.png` bằng built-in ImageGen từ nền làng ban đêm đã duyệt, giữ cùng bố cục và thêm ánh bình minh. Màn trận và bàn quản trò đổi nền theo pha; lớp phủ tối giữ chữ rõ, nền màu dự phòng có sẵn nếu ảnh lỗi. Biểu tượng pixel cho hiệu ứng, chết và hồi sinh là SVG lưới nhỏ, luôn xuất hiện cạnh nhãn chữ ở bảng quản trò, ghế người chơi hoặc tab Thông báo. Prompt gốc ghi trong `frontend/public/assets/README.md`; frontend build đạt. Kiểm tra trực quan 5.6b và ảnh chụp nằm trong [biên bản](visual-verification.md).
 
