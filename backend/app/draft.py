@@ -1,8 +1,6 @@
-"""One-at-a-time 1-of-3 role draft; room row serializes every turn."""
+"""One-at-a-time role draft from a shrinking pool; room row serializes turns."""
 
 import secrets
-import unicodedata
-from collections import Counter, defaultdict
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,7 +22,6 @@ class DraftStartInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     candidate_role_ids: list[UUID]
-    allow_duplicate_roles: bool = True
 
     @model_validator(mode="after")
     def unique_values(self):
@@ -66,75 +63,20 @@ class DraftStatusOutput(BaseModel):
     current_turn: int | None
     my_turn: int | None
     my_offers: list[RoleOutput] | None
-    faction_seats: dict[str, int] | None
     candidate_role_ids: list[UUID] | None
-    allow_duplicate_roles: bool | None
     host_turns: list[DraftTurnOutput] | None
-
-
-def faction_key(label: str) -> str:
-    return label.strip().casefold()
-
-
-def priority_kind(label: str) -> str | None:
-    plain = "".join(char for char in unicodedata.normalize("NFD", label.casefold())
-                    if unicodedata.category(char) != "Mn").replace("đ", "d").strip()
-    if plain in {"soi", "ma soi", "phe soi", "wolf", "wolves"}:
-        return "wolf"
-    if plain in {"trung lap", "phe trung lap", "neutral"}:
-        return "neutral"
-    return None
-
-
-def choose_offers_legacy(snapshot: RoleSnapshot, turns: list[DraftTurn]) -> list[str]:
-    definitions = {role["id"]: role for role in snapshot.definitions}
-    chosen_ids = {str(turn.chosen_role_id) for turn in turns if turn.chosen_role_id is not None}
-    used_seats = Counter(faction_key(definitions[str(turn.chosen_role_id)]["faction_label"])
-                         for turn in turns if turn.chosen_role_id is not None)
-    quotas = {faction_key(label): seats for label, seats in snapshot.settings["faction_seats"].items()}
-    candidates = [definitions[role_id] for role_id in snapshot.settings["candidate_role_ids"]]
-    pools: dict[str, list[str]] = defaultdict(list)
-    for role in candidates:
-        key = faction_key(role["faction_label"])
-        if quotas.get(key, 0) > used_seats[key] and (snapshot.settings["allow_duplicate_roles"]
-                                               or role["id"] not in chosen_ids):
-            pools[key].append(role["id"])
-    eligible = [role_id for pool in pools.values() for role_id in pool]
-    if len(eligible) < 3:
-        raise RuntimeError("Cấu hình draft không còn đủ ba role hợp lệ")
-    offers: list[str] = []
-    for kind in ("wolf", "neutral"):
-        matching = [role_id for key, pool in pools.items()
-                    if priority_kind(definitions[pool[0]]["faction_label"]) == kind
-                    for role_id in pool if role_id not in offers]
-        if matching:
-            offers.append(random_source.choice(matching))
-    offered_factions = {faction_key(definitions[role_id]["faction_label"]) for role_id in offers}
-    distinct_factions = [key for key in pools if key not in offered_factions]
-    random_source.shuffle(distinct_factions)
-    for key in distinct_factions:
-        if len(offers) == 3:
-            break
-        offers.append(random_source.choice(pools[key]))
-    remaining = [role_id for role_id in eligible if role_id not in offers]
-    offers.extend(random_source.sample(remaining, 3 - len(offers)))
-    random_source.shuffle(offers)
-    return offers
 
 
 def eligible_role_ids(snapshot: RoleSnapshot, turns: list[DraftTurn]) -> list[str]:
     chosen_ids = {str(turn.chosen_role_id) for turn in turns if turn.chosen_role_id is not None}
     return [role_id for role_id in snapshot.settings["candidate_role_ids"]
-            if snapshot.settings["allow_duplicate_roles"] or role_id not in chosen_ids]
+            if role_id not in chosen_ids]
 
 
 def choose_offers(snapshot: RoleSnapshot, turns: list[DraftTurn]) -> list[str]:
-    # Existing drafts retain their saved quota rules; new drafts use an open pool.
-    if "faction_seats" in snapshot.settings:
-        return choose_offers_legacy(snapshot, turns)
     eligible = eligible_role_ids(snapshot, turns)
     if not eligible:
-        raise RuntimeError("Không còn role hợp lệ cho lượt chọn")
+        raise HTTPException(status_code=409, detail="Kho role đã hết; bản nháp cũ cần được tạo lại")
     return random_source.sample(eligible, min(3, len(eligible)))
 
 
@@ -159,15 +101,13 @@ async def start_draft(room_id: UUID, body: DraftStartInput, user: User = Depends
         raise HTTPException(status_code=409, detail="Cần chọn ít nhất một role ứng viên")
     if not set(body.candidate_role_ids).issubset(role_by_id):
         raise HTTPException(status_code=422, detail="Role ứng viên không thuộc bộ role")
-    if not body.allow_duplicate_roles and len(body.candidate_role_ids) < len(members):
-        raise HTTPException(status_code=409, detail=(
-            "Khi tắt role trùng, cần ít nhất một role ứng viên cho mỗi người chơi"))
+    if len(body.candidate_role_ids) < len(members):
+        raise HTTPException(status_code=409, detail="Cần ít nhất một role ứng viên riêng cho mỗi người chơi")
     order = [member.user_id for member in members]
     random_source.shuffle(order)
     role_set = await db.get(RoleSet, room_id)
     settings = {
         "candidate_role_ids": [str(role_id) for role_id in body.candidate_role_ids],
-        "allow_duplicate_roles": body.allow_duplicate_roles,
         "turn_order": [str(user_id) for user_id in order],
     }
     snapshot = RoleSnapshot(room_id=room_id, set_name=role_set.name,
@@ -196,13 +136,11 @@ async def draft_status(room_id: UUID, user: User = Depends(current_user),
     if snapshot is None:
         return DraftStatusOutput(mode=None, status=room.status, total=0, completed=0,
                                  current_turn=None, my_turn=None, my_offers=None,
-                                 faction_seats=None, candidate_role_ids=None,
-                                 allow_duplicate_roles=None, host_turns=None)
+                                 candidate_role_ids=None, host_turns=None)
     if snapshot.distribution_mode != "draft":
         return DraftStatusOutput(mode=snapshot.distribution_mode, status=room.status, total=0,
                                  completed=0, current_turn=None, my_turn=None, my_offers=None,
-                                 faction_seats=None, candidate_role_ids=None,
-                                 allow_duplicate_roles=None, host_turns=None)
+                                 candidate_role_ids=None, host_turns=None)
     turns = await all_turns(db, room_id)
     current = next((turn for turn in turns if turn.chosen_role_id is None), None)
     own = next((turn for turn in turns if turn.user_id == user.id), None)
@@ -214,9 +152,7 @@ async def draft_status(room_id: UUID, user: User = Depends(current_user),
         completed=sum(turn.chosen_role_id is not None for turn in turns),
         current_turn=current.turn_index if current else None,
         my_turn=own.turn_index if own else None, my_offers=my_offers,
-        faction_seats=snapshot.settings.get("faction_seats"),
         candidate_role_ids=snapshot.settings["candidate_role_ids"],
-        allow_duplicate_roles=snapshot.settings["allow_duplicate_roles"],
         host_turns=[DraftTurnOutput(turn_index=turn.turn_index, user_id=turn.user_id,
                                    offers=turn.offers, chosen_role_id=turn.chosen_role_id,
                                    chosen_by_user_id=turn.chosen_by_user_id,
@@ -229,10 +165,14 @@ async def draft_status(room_id: UUID, user: User = Depends(current_user),
 async def resolve_choice(db: AsyncSession, room: Room, snapshot: RoleSnapshot,
                          turn: DraftTurn, turns: list[DraftTurn], actor: User,
                          chosen_id: UUID, mode: str, reason: str | None) -> None:
-    allowed = (eligible_role_ids(snapshot, turns) if mode in {"self_random", "host_random"}
-               and "faction_seats" not in snapshot.settings else turn.offers)
+    eligible = eligible_role_ids(snapshot, turns)
+    allowed = eligible if mode in {"self_random", "host_random"} else turn.offers
     if str(chosen_id) not in allowed:
         raise HTTPException(status_code=409, detail="Role không hợp lệ cho lượt này")
+    if str(chosen_id) not in eligible:
+        raise HTTPException(status_code=409, detail="Role đã được người khác chọn")
+    if len(eligible) < sum(item.chosen_role_id is None for item in turns):
+        raise HTTPException(status_code=409, detail="Bản nháp cũ không đủ role riêng cho mọi người; cần tạo lại phòng")
     turn.chosen_role_id = chosen_id
     turn.chosen_by_user_id = actor.id
     turn.choice_mode = mode
@@ -274,8 +214,9 @@ async def choose_draft_role(room_id: UUID, body: DraftChoiceInput,
     turn = next((item for item in turns if item.chosen_role_id is None), None)
     if turn is None or turn.user_id != user.id:
         raise HTTPException(status_code=403, detail="Chưa đến lượt của bạn")
-    random_pool = (eligible_role_ids(snapshot, turns) if "faction_seats" not in snapshot.settings
-                   else turn.offers)
+    random_pool = eligible_role_ids(snapshot, turns)
+    if not random_pool:
+        raise HTTPException(status_code=409, detail="Kho role đã hết")
     chosen_id = random_source.choice(random_pool) if body.choose_random else body.role_id
     await resolve_choice(db, room, snapshot, turn, turns, user, chosen_id,
                          "self_random" if body.choose_random else "self", None)
@@ -299,8 +240,9 @@ async def host_random_choice(room_id: UUID, body: HostRandomInput,
     snapshot = await db.get(RoleSnapshot, room_id)
     turns = await all_turns(db, room_id)
     turn = next((item for item in turns if item.chosen_role_id is None), None)
-    random_pool = (eligible_role_ids(snapshot, turns) if "faction_seats" not in snapshot.settings
-                   else turn.offers)
+    random_pool = eligible_role_ids(snapshot, turns)
+    if not random_pool:
+        raise HTTPException(status_code=409, detail="Kho role đã hết")
     await resolve_choice(db, room, snapshot, turn, turns, user,
                          random_source.choice(random_pool), "host_random", reason)
     return await draft_status(room_id, user, db)

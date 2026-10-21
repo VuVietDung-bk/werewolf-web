@@ -47,7 +47,8 @@ def test_phase_pause_resume_and_manual_finish() -> None:
                 assert (await host.patch(f"{url}/settings", json=settings,
                                          headers={"Origin": ORIGIN})).status_code == 200
                 assert (await post(host, f"{url}/roles/distribute-random")).status_code == 200
-                assert (await post(host, f"{url}/game/start")).status_code == 200
+                start_body = {"client_request_id": str(uuid4())}
+                assert (await post(host, f"{url}/game/start", start_body)).status_code == 200
                 board_url = f"{url}/game/players"
                 board = await host.get(board_url)
                 assert board.status_code == 200 and len(board.json()) == 2
@@ -55,13 +56,17 @@ def test_phase_pause_resume_and_manual_finish() -> None:
                 assert (await player_a.get(board_url)).status_code == 403
                 assert (await outsider.get(board_url)).status_code == 403
                 assert "is_alive" not in (await player_a.get(url)).json()["members"][0]
+                public_version_before_kill = (await player_a.get(url)).json()["version"]
                 target_id = ids[1]
                 actions_url = f"{board_url}/{target_id}/actions"
                 kill_id = str(uuid4())
                 kill_body = {"client_request_id": kill_id, "action": "kill", "reason": "Sói tấn công"}
                 assert (await post(player_a, actions_url, kill_body)).status_code == 403
-                killed = await post(host, actions_url, kill_body)
-                assert killed.status_code == 200 and not killed.json()["repeated"]
+                kill_attempts = await asyncio.gather(*(post(host, actions_url, kill_body)
+                                                      for _ in range(2)))
+                assert [response.status_code for response in kill_attempts] == [200, 200]
+                assert sorted(response.json()["repeated"] for response in kill_attempts) == [False, True]
+                killed = next(response for response in kill_attempts if not response.json()["repeated"])
                 repeated = await post(host, actions_url, kill_body)
                 assert repeated.status_code == 200 and repeated.json() == {
                     "event_id": killed.json()["event_id"], "repeated": True}
@@ -71,13 +76,25 @@ def test_phase_pause_resume_and_manual_finish() -> None:
                     "client_request_id": str(uuid4())})).status_code == 409
                 assert not next(item for item in (await host.get(board_url)).json()
                                 if item["user_id"] == target_id)["is_alive"]
-                assert "is_alive" not in (await player_b.get(url)).json()["members"][0]
+                hidden_room = (await player_b.get(url)).json()
+                assert hidden_room["version"] == public_version_before_kill
+                assert next(item for item in hidden_room["members"]
+                            if item["user_id"] == target_id)["public_is_alive"]
+                notice_url = f"{url}/game/death-notices"
+                assert (await player_b.get(notice_url)).json() == []
+                assert (await outsider.get(notice_url)).status_code == 403
                 advance = {"expected_phase_type": "day", "expected_round_number": 0}
                 assert (await post(player_a, f"{url}/game/advance", advance)).status_code == 403
                 assert (await post(outsider, f"{url}/game/advance", advance)).status_code == 403
                 assert (await post(host, f"{url}/game/pause", {"reason": "  "})).status_code == 422
-                paused = await post(host, f"{url}/game/pause", {"reason": "  Nghỉ giải lao  "})
+                pause_body = {"client_request_id": str(uuid4()), "reason": "  Nghỉ giải lao  "}
+                paused = await post(host, f"{url}/game/pause", pause_body)
                 assert paused.status_code == 200 and paused.json()["is_paused"]
+                assert (await post(host, f"{url}/game/pause", pause_body)).status_code == 200
+                assert (await post(host, f"{url}/game/pause", {
+                    **pause_body, "reason": "Lý do khác"})).status_code == 409
+                assert (await post(host, f"{url}/game/resume", {
+                    "client_request_id": pause_body["client_request_id"]})).status_code == 409
                 assert (await post(host, actions_url, {"client_request_id": str(uuid4()),
                     "action": "add_effect", "text": "Bị câm", "reason": "Đêm 1"})).status_code == 409
                 noted = await post(host, actions_url, {"client_request_id": str(uuid4()),
@@ -89,8 +106,15 @@ def test_phase_pause_resume_and_manual_finish() -> None:
                 assert (await player_a.get(url)).json()["is_paused"]
                 assert (await post(host, f"{url}/game/pause", {"reason": "Lần nữa"})).status_code == 409
                 assert (await post(host, f"{url}/game/advance", advance)).status_code == 409
-                resumed = await post(host, f"{url}/game/resume")
+                resume_body = {"client_request_id": str(uuid4())}
+                resumed = await post(host, f"{url}/game/resume", resume_body)
                 assert resumed.status_code == 200 and not resumed.json()["is_paused"]
+                assert (await post(host, f"{url}/game/pause", pause_body)).json()["is_paused"] is False
+                pause_again = {"client_request_id": str(uuid4()), "reason": "Dừng lần hai"}
+                assert (await post(host, f"{url}/game/pause", pause_again)).json()["is_paused"]
+                assert (await post(host, f"{url}/game/resume", resume_body)).json()["is_paused"]
+                assert not (await post(host, f"{url}/game/resume", {
+                    "client_request_id": str(uuid4())})).json()["is_paused"]
                 effect = {"client_request_id": str(uuid4()), "action": "add_effect",
                           "text": "Bị câm", "reason": "Do quản trò xác nhận"}
                 assert (await post(host, actions_url, effect)).status_code == 200
@@ -103,28 +127,69 @@ def test_phase_pause_resume_and_manual_finish() -> None:
                     "action": "remove_effect", "text": "bị CÂM", "reason": "Hết hiệu lực"})).status_code == 200
                 assert (await post(host, actions_url, {"client_request_id": str(uuid4()),
                     "action": "remove_effect", "text": "Bị câm", "reason": "Lặp"})).status_code == 409
-                revived = await post(host, actions_url, {"client_request_id": str(uuid4()),
-                    "action": "revive", "reason": "Sửa quyết định"})
-                assert revived.status_code == 200
-                assert next(item for item in (await host.get(board_url)).json()
-                            if item["user_id"] == target_id)["is_alive"]
-                assert (await post(host, actions_url, {"client_request_id": str(uuid4()),
-                    "action": "revive", "reason": "Lặp"})).status_code == 409
                 assert (await post(host, f"{url}/game/resume")).status_code == 409
                 attempts = await asyncio.gather(*(post(host, f"{url}/game/advance", advance)
                                                   for _ in range(2)))
                 assert sorted(response.status_code for response in attempts) == [200, 409]
                 assert (await host.get(url)).json()["phase_type"] == "night"
                 assert (await host.get(url)).json()["round_number"] == 1
-                night = await post(host, f"{url}/game/advance", {
-                    "expected_phase_type": "night", "expected_round_number": 1})
+                night_advance = {"expected_phase_type": "night", "expected_round_number": 1,
+                                 "client_request_id": str(uuid4())}
+                night = await post(host, f"{url}/game/advance", night_advance)
                 assert night.status_code == 200
                 assert (night.json()["phase_type"], night.json()["round_number"]) == ("day", 1)
+                assert (await post(host, f"{url}/game/advance", night_advance)).json()["round_number"] == 1
+                death_body = {"client_request_id": str(uuid4()),
+                              "moderator_reason": "Đã đối chiếu kết quả đêm",
+                              "public_cause": "  Bị tấn công  ", "reveal_role": False}
+                announce_url = f"{board_url}/{target_id}/announce"
+                assert (await post(player_b, announce_url, death_body)).status_code == 403
+                assert (await post(host, announce_url, {**death_body,
+                    "moderator_reason": " "})).status_code == 422
+                announced = await post(host, announce_url, death_body)
+                assert announced.status_code == 200 and not announced.json()["repeated"]
+                assert (await post(host, announce_url, death_body)).json() == {
+                    "event_id": announced.json()["event_id"], "repeated": True}
+                assert (await post(host, announce_url, {**death_body,
+                    "public_cause": "Lý do khác"})).status_code == 409
+                public_room = (await player_b.get(url)).json()
+                public_member = next(item for item in public_room["members"]
+                                     if item["user_id"] == target_id)
+                assert not public_member["public_is_alive"]
+                assert public_member["public_role_name"] is None
+                assert public_room["version"] > public_version_before_kill
+                notices = (await player_b.get(notice_url)).json()
+                assert len(notices) == 1 and notices[0]["status"] == "dead"
+                assert notices[0]["public_cause"] == "Bị tấn công"
+                assert notices[0]["revealed_role_name"] is None
+                assert "moderator_reason" not in notices[0]
+                assert (await post(host, announce_url, {**death_body,
+                    "client_request_id": str(uuid4())})).status_code == 409
+                revived = await post(host, actions_url, {"client_request_id": str(uuid4()),
+                    "action": "revive", "reason": "Sửa quyết định"})
+                assert revived.status_code == 200
+                assert next(item for item in (await host.get(board_url)).json()
+                            if item["user_id"] == target_id)["is_alive"]
+                assert not next(item for item in (await player_b.get(url)).json()["members"]
+                                if item["user_id"] == target_id)["public_is_alive"]
+                assert (await post(host, actions_url, {"client_request_id": str(uuid4()),
+                    "action": "revive", "reason": "Lặp"})).status_code == 409
+                revival = await post(host, announce_url, {"client_request_id": str(uuid4()),
+                    "moderator_reason": "Xác nhận sửa sai", "reveal_role": True})
+                assert revival.status_code == 200
+                public_member = next(item for item in (await player_a.get(url)).json()["members"]
+                                     if item["user_id"] == target_id)
+                assert public_member["public_is_alive"]
+                assert public_member["public_role_name"] == "Dân làng"
+                notices = (await player_a.get(notice_url)).json()
+                assert [item["status"] for item in notices] == ["dead", "alive"]
+                assert notices[1]["revealed_role_name"] == "Dân làng"
                 assert (await post(host, f"{url}/game/finish", {
                     "result_label": "  ", "result_reason": "Ván kết thúc"})).status_code == 422
-                finished = await post(host, f"{url}/game/finish", {
+                finish_body = {"client_request_id": str(uuid4()),
                     "result_label": " Phe Làng thắng ",
-                    "result_reason": " Quản trò đã kiểm tra kết quả. "})
+                    "result_reason": " Quản trò đã kiểm tra kết quả. "}
+                finished = await post(host, f"{url}/game/finish", finish_body)
                 assert finished.status_code == 200
                 assert finished.json()["status"] == "finished"
                 assert finished.json()["result_label"] == "Phe Làng thắng"
@@ -135,12 +200,21 @@ def test_phase_pause_resume_and_manual_finish() -> None:
                     "expected_phase_type": "day", "expected_round_number": 1})).status_code == 409
                 assert (await post(host, f"{url}/game/finish", {
                     "result_label": "Khác", "result_reason": "Không hợp lệ"})).status_code == 409
+                assert (await post(host, f"{url}/game/finish", finish_body)).json()["status"] == "finished"
+                assert (await post(host, f"{url}/game/start", start_body)).json()["status"] == "finished"
+                assert (await post(host, actions_url, kill_body)).json() == {
+                    "event_id": killed.json()["event_id"], "repeated": True}
+                assert (await post(host, announce_url, death_body)).json() == {
+                    "event_id": announced.json()["event_id"], "repeated": True}
+                assert (await post(host, actions_url, {"client_request_id": str(uuid4()),
+                    "action": "note", "text": "Ghi sau trận"})).status_code == 409
                 async with session_factory()() as db:
                     events = (await db.scalars(select(GameEvent).where(
                         GameEvent.room_id == UUID(room_id), GameEvent.kind.like("game.%")
                     ).order_by(GameEvent.sequence))).all()
                     assert [event.kind for event in events] == [
                         "game.started", "game.paused", "game.resumed",
+                        "game.paused", "game.resumed",
                         "game.phase_advanced", "game.phase_advanced", "game.finished"]
                     assert events[1].payload["reason"] == "Nghỉ giải lao"
                     assert events[-1].payload["result_label"] == "Phe Làng thắng"
@@ -151,8 +225,12 @@ def test_phase_pause_resume_and_manual_finish() -> None:
                     ).order_by(GameEvent.sequence))).all()
                     assert [event.kind for event in player_events] == [
                         "player.kill", "player.note", "player.add_effect",
-                        "player.remove_effect", "player.revive"]
-                    assert all(event.visibility == "host" for event in player_events)
+                        "player.remove_effect", "player.announcement_decided",
+                        "player.death_announced", "player.revive",
+                        "player.announcement_decided", "player.revival_announced"]
+                    assert [event.visibility for event in player_events] == [
+                        "host", "host", "host", "host", "host", "room",
+                        "host", "host", "room"]
                     for event in player_events:
                         assert (await db.scalar(select(Outbox).where(
                             Outbox.event_id == event.id))) is not None

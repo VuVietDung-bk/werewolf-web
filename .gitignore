@@ -3,6 +3,7 @@ archives/
 discord.log
 WEB_PLAN.md
 CHECKLIST.md
+.local-demo.json
 .venv/
 __pycache__/
 *.py[cod]

@@ -3,15 +3,15 @@ import { api, jsonBody, type DraftStatus, type RoleCatalog, type Room } from '..
 import { factionClass } from '../factions'
 import RoleIcon from './RoleIcon'
 
-type DraftPreferences = { mode: 'random' | 'draft'; candidates: string[] | null; allowDuplicates: boolean }
+type DraftPreferences = { mode: 'random' | 'draft'; candidates: string[] | null }
 const preferenceKey = (roomId: string) => `ma-soi-distribution-${roomId}`
 function readPreferences(roomId: string): DraftPreferences {
   try {
     const value = JSON.parse(sessionStorage.getItem(preferenceKey(roomId)) ?? 'null') as Partial<DraftPreferences> | null
     return { mode: value?.mode === 'draft' ? 'draft' : 'random',
       candidates: Array.isArray(value?.candidates) && value.candidates.every((id) => typeof id === 'string')
-        ? value.candidates : null, allowDuplicates: value?.allowDuplicates !== false }
-  } catch { return { mode: 'random', candidates: null, allowDuplicates: true } }
+        ? value.candidates : null }
+  } catch { return { mode: 'random', candidates: null } }
 }
 
 export default function DraftPanel({ room, catalog, onRoomChanged, onRandomDistribution, randomBusy }: {
@@ -20,7 +20,6 @@ export default function DraftPanel({ room, catalog, onRoomChanged, onRandomDistr
 }) {
   const [mode, setMode] = useState<'random' | 'draft'>(() => readPreferences(room.id).mode)
   const [candidates, setCandidates] = useState<string[] | null>(() => readPreferences(room.id).candidates)
-  const [allowDuplicates, setAllowDuplicates] = useState(() => readPreferences(room.id).allowDuplicates)
   const [status, setStatus] = useState<DraftStatus | null>(null)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
@@ -33,7 +32,7 @@ export default function DraftPanel({ room, catalog, onRoomChanged, onRandomDistr
   const factions = [...new Set(catalog.roles.map((role) => role.faction_label))]
   const selected = candidates ?? catalog.roles.map((role) => role.id)
   const total = catalog.roles.reduce((sum, role) => sum + role.quantity, 0)
-  const needsMoreRoles = !allowDuplicates && selected.length < room.members.length
+  const needsMoreRoles = selected.length < room.members.length
 
   useEffect(() => {
     const valid = new Set(catalog.roles.map((role) => role.id))
@@ -41,9 +40,9 @@ export default function DraftPanel({ room, catalog, onRoomChanged, onRandomDistr
   }, [catalog.roles.map((role) => role.id).join('|')])
 
   useEffect(() => {
-    try { sessionStorage.setItem(preferenceKey(room.id), JSON.stringify({ mode, candidates, allowDuplicates })) }
+    try { sessionStorage.setItem(preferenceKey(room.id), JSON.stringify({ mode, candidates })) }
     catch { /* A private browser session can deny storage; the form still works. */ }
-  }, [room.id, mode, candidates, allowDuplicates])
+  }, [room.id, mode, candidates])
 
   useEffect(() => {
     if (catalog.distribution_mode !== 'draft') return
@@ -85,7 +84,7 @@ export default function DraftPanel({ room, catalog, onRoomChanged, onRandomDistr
     event.preventDefault()
     void run(async () => {
       await api(`/api/rooms/${room.id}/roles/draft/start`, { method: 'POST', body: jsonBody({
-        candidate_role_ids: selected, allow_duplicate_roles: allowDuplicates,
+        candidate_role_ids: selected,
       }) })
     }, 'Đã xáo lượt và mở lựa chọn đầu tiên.')
   }
@@ -111,25 +110,23 @@ export default function DraftPanel({ room, catalog, onRoomChanged, onRandomDistr
           <strong>Phát ngẫu nhiên</strong><span>Phát kín theo số bản của từng role.</span></button>
         <button type="button" className={mode === 'draft' ? 'distribution-mode selected' : 'distribution-mode'}
           aria-pressed={mode === 'draft'} onClick={() => setMode('draft')}>
-          <strong>Người chơi chọn 1 trong 3</strong><span>Xáo thứ tự; mỗi lượt chọn một role hoặc Random.</span></button>
+          <strong>Chọn tối đa 3 role</strong><span>Xáo thứ tự; role đã chọn rời kho. Mỗi lượt chọn một role hoặc Random.</span></button>
       </div>
       {mode === 'random' ? <div className="distribution-details">
         <p><strong>{total}/{room.members.length}</strong> bản role. Chỉnh “Số bản” trên thẻ role để tổng bằng số người chơi.</p>
         <button type="button" disabled={randomBusy || room.status !== 'closed' || total !== room.members.length || total < 2}
           onClick={() => void onRandomDistribution()}>Phát role ngẫu nhiên</button>
       </div> : <form className="draft-config stack-form distribution-details" onSubmit={start}>
-      <p>Chọn role có thể xuất hiện. Mỗi lượt hệ thống mời tối đa ba role khác nhau, không giữ số ghế cố định theo phe. Số bản trên thẻ role chỉ áp dụng cho cách phát ngẫu nhiên.</p>
+      <p>Chọn role có thể xuất hiện. Mỗi lượt hệ thống mời tối đa ba role từ kho còn lại; role được chọn sẽ rời kho. Không giữ số ghế cố định theo phe. Số bản trên thẻ role chỉ áp dụng cho cách phát ngẫu nhiên.</p>
       <div className="draft-factions">{factions.map((faction) => <fieldset key={faction}>
         <legend><span className={`faction-badge ${factionClass(faction)}`}>{faction}</span></legend>
         <div className="draft-candidates">{catalog.roles.filter((role) => role.faction_label === faction).map((role) =>
           <label key={role.id} className="consent"><input type="checkbox" checked={selected.includes(role.id)}
             onChange={() => toggleCandidate(role.id)} /><span>{role.name}</span></label>)}</div>
       </fieldset>)}</div>
-      <label className="consent"><input type="checkbox" checked={allowDuplicates}
-        onChange={(event) => setAllowDuplicates(event.target.checked)} />Cho phép nhiều người chọn cùng một role</label>
       <p><strong>{selected.length}</strong> role ứng viên · <strong>{room.members.length}</strong> người chơi. Khi chọn Random, hệ thống rút từ toàn bộ role ứng viên còn hợp lệ, có thể khác ba role đang mời.</p>
-      {!allowDuplicates && <p>Role đã được nhận sẽ rời kho. Các lượt cuối có thể thấy một hoặc hai lựa chọn nếu kho còn ít role.</p>}
-      {needsMoreRoles && <p className="form-message">Khi tắt role trùng, cần ít nhất {room.members.length} role ứng viên để mỗi người nhận một role riêng.</p>}
+      <p>Các lượt cuối sẽ thấy một hoặc hai lựa chọn nếu kho còn ít role.</p>
+      {needsMoreRoles && <p className="form-message">Cần ít nhất {room.members.length} role ứng viên để mỗi người nhận một role riêng.</p>}
       <button disabled={busy || room.status !== 'closed' || room.members.length < 2 || selected.length === 0 || needsMoreRoles}>Xáo lượt và bắt đầu chọn role</button>
       {room.status === 'open' && <small>Đóng đăng ký trước khi bắt đầu.</small>}
     </form>}</>}
@@ -137,7 +134,7 @@ export default function DraftPanel({ room, catalog, onRoomChanged, onRandomDistr
       <p><strong>{status.completed}/{status.total}</strong> người đã chọn · {status.current_turn ?
         `đang ở lượt ${status.current_turn}` : 'đã hoàn tất'}</p>
       {status.my_turn && <p>Lượt của bạn: <strong>{status.my_turn}/{status.total}</strong>.</p>}
-      {status.my_offers && <div className="draft-offers"><h4>{status.my_offers.length === 3 ? 'Ba role của bạn' : 'Role còn lại để chọn'}</h4><div className="role-list">
+      {status.my_offers && <div className="draft-offers"><h4>{status.my_offers.length} role để chọn</h4><div className="role-list">
         {status.my_offers.map((role) => <article className={`role-card ${factionClass(role.faction_label)}`} key={role.id}>
           <div className="role-card-heading"><div className="role-title"><RoleIcon role={role} roomId={room.id} /><strong>{role.name}</strong></div><span className={`faction-badge ${factionClass(role.faction_label)}`}>{role.faction_label}</span></div>
           <p>{role.description}</p><small>Tiên tri soi ra: {role.seer_result}</small>

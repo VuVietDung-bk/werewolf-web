@@ -1,13 +1,21 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, jsonBody, type Identity, type Room, type RoomSummary } from './api'
 import PixelAsset from './components/PixelAsset'
+import StatusGlyph from './components/StatusGlyph'
 import RolePanel from './components/RolePanel'
 import GameControls from './components/GameControls'
+import VotePanel from './components/VotePanel'
 import HostPlayerBoard from './components/HostPlayerBoard'
+import DeathNotices from './components/DeathNotices'
+import PrivateInbox from './components/PrivateInbox'
+import ChatPanel from './components/ChatPanel'
+import DemoSwitcher from './components/DemoSwitcher'
+import { useRequestIds } from './useRequestIds'
+import { useConfirmation } from './useConfirmation'
 
 type ApiStatus = 'loading' | 'online' | 'offline'
-type View = 'home' | 'lobby' | 'catalog' | 'manage' | 'distribution' | 'assignment' | 'game' | 'control'
-const VIEWS: View[] = ['home', 'lobby', 'catalog', 'manage', 'distribution', 'assignment', 'game', 'control']
+type View = 'home' | 'lobby' | 'catalog' | 'manage' | 'distribution' | 'assignment' | 'game' | 'chat' | 'vote' | 'control' | 'dead' | 'private'
+const VIEWS: View[] = ['home', 'lobby', 'catalog', 'manage', 'distribution', 'assignment', 'game', 'chat', 'vote', 'control', 'dead', 'private']
 const ROOM_KEY = 'ma-soi-active-room'
 const showAssetDemo = new URLSearchParams(window.location.search).has('asset-demo')
 const readView = (): View => {
@@ -16,17 +24,23 @@ const readView = (): View => {
 }
 const roomViews = (room: Room): View[] => [
   ...(['playing', 'finished'].includes(room.status) ? ['game'] as View[] : ['lobby'] as View[]),
+  'chat',
   'catalog',
   ...(['open', 'closed'].includes(room.status) && room.is_host ? ['manage'] as View[] : []),
   ...((['open', 'closed'].includes(room.status) && room.is_host) || room.status === 'drafting'
     ? ['distribution'] as View[] : []),
   ...(['assigned', 'playing', 'finished'].includes(room.status) ? ['assignment'] as View[] : []),
+  ...(['playing', 'finished'].includes(room.status) ? ['dead'] as View[] : []),
+  ...(['playing', 'finished'].includes(room.status) ? ['vote'] as View[] : []),
+  ...(['playing', 'finished'].includes(room.status) && !room.is_host ? ['private'] as View[] : []),
   ...(['playing', 'finished'].includes(room.status) && room.is_host ? ['control'] as View[] : []),
 ]
 const roomDefaultView = (room: Room): View => ['playing', 'finished'].includes(room.status) ? 'game'
   : room.status === 'assigned' ? 'assignment' : room.status === 'drafting' ? 'distribution' : 'lobby'
 
 export default function App() {
+  const requestIdFor = useRequestIds()
+  const { ask, confirmationDialog } = useConfirmation()
   const [apiStatus, setApiStatus] = useState<ApiStatus>('loading')
   const [identity, setIdentity] = useState<Identity | null>(null)
   const [rooms, setRooms] = useState<RoomSummary[]>([])
@@ -43,6 +57,7 @@ export default function App() {
   const [message, setMessage] = useState('')
   const [view, setView] = useState<View>(readView)
   const [ready, setReady] = useState(false)
+  const navigationRef = useRef<HTMLElement>(null)
 
   function navigate(next: View, replace = false) {
     const hash = `#${next}`
@@ -73,6 +88,15 @@ export default function App() {
     window.addEventListener('hashchange', syncView)
     return () => window.removeEventListener('hashchange', syncView)
   }, [])
+
+  useEffect(() => {
+    const nav = navigationRef.current
+    const active = nav?.querySelector<HTMLElement>('button.active')
+    if (nav && active && nav.scrollWidth > nav.clientWidth) {
+      nav.scrollLeft += active.getBoundingClientRect().left - nav.getBoundingClientRect().left
+        - (nav.clientWidth - active.clientWidth) / 2
+    }
+  }, [view, room?.id, room?.status])
 
   useEffect(() => {
     let alive = true
@@ -211,10 +235,20 @@ export default function App() {
     void run(async () => { await loadRooms(room.id) })
   }
 
-  function startGame() {
-    if (!room) return
+  async function startGame() {
+    if (!room || busy) return
+    if (!await ask({
+      title: 'Bắt đầu trận', phase: 'Trước Ngày 0', subject: room.name,
+      audience: 'Toàn bộ thành viên phòng',
+      publicText: 'Trận bắt đầu ở Ngày 0. Sảnh chờ đóng; mỗi người xem role được phát cho mình.',
+      note: 'Kiểm tra danh sách người chơi và role đã phát trước khi bắt đầu.',
+      confirmLabel: 'Bắt đầu Ngày 0',
+    })) return
     void run(async () => {
-      await api<Room>(`/api/rooms/${room.id}/game/start`, { method: 'POST' })
+      const request = requestIdFor({ room_id: room.id, action: 'start' })
+      await api<Room>(`/api/rooms/${room.id}/game/start`, { method: 'POST',
+        body: jsonBody({ client_request_id: request.id }) })
+      request.acknowledge()
       await loadRooms(room.id)
       navigate('game')
     })
@@ -235,7 +269,7 @@ export default function App() {
     { view: 'home', label: 'Trang chủ' },
     ...(room ? roomViews(room).map((item) => ({ view: item, label: {
       lobby: 'Sảnh chờ', catalog: 'Danh mục role', manage: 'Thiết lập role', distribution: room.status === 'drafting' ? 'Chọn role' : 'Phát role',
-      assignment: room.is_host ? 'Phân role' : 'Role của tôi', game: 'Trận đấu', control: 'Bàn quản trò', home: 'Trang chủ',
+      assignment: room.is_host ? 'Phân role' : 'Role của tôi', game: 'Trận đấu', chat: 'Chat', vote: 'Vote', control: 'Bàn quản trò', dead: 'Thông báo', private: 'Tin riêng', home: 'Trang chủ',
     }[item] })) : []),
   ]
 
@@ -245,7 +279,9 @@ export default function App() {
       <span className="edition">Bản thử nghiệm · Ma Sói do quản trò điều hành</span>
     </header>
 
-    <nav className="screen-nav" aria-label="Điều hướng màn hình">
+    <DemoSwitcher identity={identity} />
+
+    <nav ref={navigationRef} className="screen-nav" aria-label="Điều hướng màn hình">
       <span className="screen-nav-context">{room?.name ?? 'Ma Sói'}</span>
       {tabs.map((tab) => <button key={tab.view} type="button" className={view === tab.view ? 'active' : ''}
         aria-current={view === tab.view ? 'page' : undefined} onClick={() => navigate(tab.view)}>{tab.label}</button>)}
@@ -350,24 +386,31 @@ export default function App() {
       </section>}
       {view === 'assignment' && room.is_host && room.status === 'assigned' && <div className="start-game-box">
         <p>Mọi người đã có role. Kiểm tra phân role rồi bắt đầu ngày 0.</p>
-        <button type="button" disabled={busy} onClick={startGame}>Bắt đầu ngày 0</button>
+        <button type="button" disabled={busy} onClick={() => void startGame()}>Bắt đầu ngày 0</button>
       </div>}
       {(['catalog', 'manage', 'distribution', 'assignment'] as View[]).includes(view) &&
         <RolePanel key={room.id} view={view as 'catalog' | 'manage' | 'distribution' | 'assignment'} room={room}
           onRoomChanged={async () => { await loadRooms(room.id) }} />}
       {view === 'game' && <section className="game-screen" aria-labelledby="game-title">
-        <span className="eyebrow">{room.status === 'finished' ? 'KẾT QUẢ TRẬN' : 'TRẬN ĐẤU'}</span>
-        <h2 id="game-title">{room.phase_type === 'night' ? 'Đêm' : 'Ngày'} {room.round_number}</h2>
+        <div className={`phase-banner phase-${room.phase_type}`}>
+          <span className="eyebrow">{room.status === 'finished' ? 'KẾT QUẢ TRẬN' : 'TRẬN ĐẤU'}</span>
+          <h2 id="game-title">{room.phase_type === 'night' ? 'Đêm' : 'Ngày'} {room.round_number}</h2>
+        </div>
         {room.status === 'finished' ? <div className="game-result"><strong>{room.result_label}</strong><p>{room.result_reason}</p></div> :
           room.is_paused ? <p className="game-paused" role="status">Trận đang tạm dừng. Vui lòng chờ quản trò tiếp tục.</p> :
             <p>Ván đang diễn ra. Dùng thanh điều hướng để xem role của bạn và danh mục role.</p>}
         <GameControls room={room} onRoomChanged={async () => { await loadRooms(room.id) }} />
         <h3>Người trong trận</h3>
-        <ol className="seat-grid" aria-label="Người trong trận">{room.members.map((member) => <li key={member.user_id} className="seat occupied">
-          <span className="seat-avatar" aria-hidden="true">◆</span><span className="seat-text"><small>GHẾ {member.seat_number.toString().padStart(2, '0')}</small>
-            <strong>{member.display_name}</strong></span></li>)}</ol>
+        <ol className="seat-grid" aria-label="Người trong trận">{room.members.map((member) => <li key={member.user_id} className={member.public_is_alive ? 'seat occupied' : 'seat occupied public-dead'}>
+          <span className="seat-avatar" aria-hidden="true">{member.public_is_alive ? '◆' : <StatusGlyph kind="dead" size={24} />}</span><span className="seat-text"><small>GHẾ {member.seat_number.toString().padStart(2, '0')}</small>
+            <strong>{member.display_name}</strong><small>{member.public_is_alive ? 'Đang sống' : 'Đã công bố chết'}{member.public_role_name ? ` · ${member.public_role_name}` : ''}</small></span></li>)}</ol>
       </section>}
-      {view === 'control' && room.is_host && <HostPlayerBoard key={room.id} room={room} />}
+      {view === 'vote' && <VotePanel room={room} onRoomChanged={async () => { await loadRooms(room.id) }} />}
+      {view === 'chat' && <ChatPanel key={room.id} room={room} />}
+      {view === 'dead' && <DeathNotices room={room} onRoomChanged={async () => { await loadRooms(room.id) }} />}
+      {view === 'private' && !room.is_host && <PrivateInbox room={room} />}
+      {view === 'control' && room.is_host && <HostPlayerBoard key={room.id} room={room}
+        onRoomChanged={async () => { await loadRooms(room.id) }} />}
     </>}
 
     {message && <p className="form-message global-message" role="alert">{message}</p>}
@@ -379,6 +422,7 @@ export default function App() {
           <h3>Ảnh thiếu</h3><p>Nhãn vẫn hiện khi file lỗi hoặc vắng mặt.</p></article>
       </div>
     </details>}
-    <p className="footnote">Chat, công bố trạng thái và các thao tác quản trò khác sẽ được thêm ở các bước tiếp theo.</p>
+    <p className="footnote">Các thao tác còn lại sẽ được thêm theo checklist của dự án.</p>
+    {confirmationDialog}
   </main>
 }

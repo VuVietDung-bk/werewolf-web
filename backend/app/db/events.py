@@ -19,6 +19,8 @@ async def append_event(
 ) -> GameEvent:
     room = (await db.execute(select(Room).where(Room.id == room_id).with_for_update())).scalar_one()
     room.version += 1
+    if visibility == "room":
+        room.public_version += 1
     event = GameEvent(
         room_id=room_id,
         sequence=room.version,

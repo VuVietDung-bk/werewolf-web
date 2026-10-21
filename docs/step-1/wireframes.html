@@ -91,8 +91,12 @@
     .event.dead { border-color:var(--red); }
     .event.revive { border-color:var(--green); }
     .event.private { border-color:var(--blue); }
+    .event.vote { border-color:var(--gold); }
     .event time { color:var(--muted); font-size:.8rem; }
     .event p { margin:5px 0 0; }
+    .vote-ballots { display:grid; gap:8px; padding:0; list-style:none; }
+    .vote-ballots li { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 12px; padding:10px 12px; border:1px solid var(--line); border-radius:6px; background:var(--panel2); }
+    .vote-ballots strong { color:var(--gold); }
     .metric { text-align:center; }
     .metric strong { display:block; font-size:1.7rem; color:var(--gold); }
     .metric span { color:var(--muted); font-size:.85rem; }
@@ -115,8 +119,10 @@
       <button type="button" data-screen="setup" aria-pressed="false">Thiết lập role</button>
       <button type="button" data-screen="draft" aria-pressed="false">Chọn role 1/3</button>
       <button type="button" data-screen="player" aria-pressed="false">Người chơi</button>
+      <button type="button" data-screen="vote-player" aria-pressed="false">Vote · người chơi</button>
+      <button type="button" data-screen="vote-host" aria-pressed="false">Vote · quản trò</button>
       <button type="button" data-screen="host" aria-pressed="false">Quản trò</button>
-      <button type="button" data-screen="deaths" aria-pressed="false">Người chết</button>
+      <button type="button" data-screen="deaths" aria-pressed="false">Thông báo</button>
       <button type="button" data-screen="recap" aria-pressed="false">Tổng kết</button>
     </nav>
 
@@ -185,9 +191,8 @@
             <div class="panel">
               <h2>Cách phát role</h2>
               <label class="radio-row"><input type="radio" name="assign-mode" checked><span><strong>Phát ngẫu nhiên</strong><span>Phát kín theo số bản từng role. Ví dụ này có 7 slot đúng 7 người.</span></span></label>
-              <label class="radio-row"><input type="radio" name="assign-mode"><span><strong>Người chơi chọn 1 trong 3</strong><span>Xáo thứ tự chọn; mỗi lượt mời tối đa ba role từ kho ứng viên, không đặt số ghế từng phe. Người chơi chọn một role hoặc Random từ cả kho còn hợp lệ.</span></span></label>
-              <div class="check-row"><input id="duplicate-roles" type="checkbox" checked><label for="duplicate-roles">Cho phép nhiều người nhận cùng một role khi chọn 1 trong 3</label></div>
-              <div class="notice">Khi tắt role trùng, cần ít nhất một role ứng viên cho mỗi người chơi. Lượt cuối có thể thấy ít hơn ba lựa chọn. Số bản trên thẻ role chỉ áp dụng cho “Phát ngẫu nhiên”.</div>
+              <label class="radio-row"><input type="radio" name="assign-mode"><span><strong>Người chơi chọn tối đa 3 role</strong><span>Xáo thứ tự chọn; mỗi lượt mời tối đa ba role từ kho còn lại, không đặt số ghế từng phe. Role được chọn rời kho; lượt cuối có thể chỉ còn một hoặc hai lựa chọn.</span></span></label>
+              <div class="notice">Role đã chọn rời kho. Cần ít nhất một loại role ứng viên cho mỗi người chơi; lượt cuối có thể thấy một hoặc hai lựa chọn. Số bản trên thẻ role chỉ áp dụng cho “Phát ngẫu nhiên”.</div>
               <p class="subline">Tiến độ khi phát: lượt đang chọn 1/7 · 0 đã chọn · 7 đang chờ. Người vắng mặt: quản trò ghi lý do rồi bấm chọn ngẫu nhiên hộ.</p>
               <div class="actions"><button class="primary" type="button">Khóa cấu hình và phát role</button></div>
             </div>
@@ -228,7 +233,7 @@
           <div class="panel role-choice"><div class="role-thumb" aria-label="Icon tạm của Kẻ Phóng Hỏa">K</div><div><span class="badge gold">Trung lập · dùng ban đêm</span><h2 class="space">Kẻ Phóng Hỏa</h2><p>Gửi đề nghị riêng ban đêm; quản trò xét và ghi quyết định.</p></div><button class="primary" type="button">Chọn Kẻ Phóng Hỏa</button></div>
           <div class="panel role-choice"><div class="role-thumb"><img src="assets/seer-concept.png" alt="Chân dung pixel art mẫu của Tiên Tri"></div><div><span class="badge blue">Phe Làng · dùng ban đêm</span><h2 class="space">Tiên Tri</h2><p>Đề nghị soi vai trò một người vào ban đêm. Có thể nhắn quản trò ban đêm.</p></div><button class="primary" type="button">Chọn Tiên Tri</button></div>
         </div>
-        <div class="panel space"><strong>Chưa quyết được?</strong> <button class="soft" type="button">Random từ kho role hợp lệ</button><p>Hệ thống có thể rút role ngoài ba lời mời đang hiện. Sau khi chọn, role được khóa; khi tắt role trùng, role này rời kho ứng viên ở lượt sau. Nếu bạn vắng mặt, quản trò có thể ghi lý do và chọn ngẫu nhiên hộ. Quản trò chờ đủ bảy role rồi mới bắt đầu. <span class="subline">Các nút ở wireframe chỉ minh họa.</span></p></div>
+        <div class="panel space"><strong>Chưa quyết được?</strong> <button class="soft" type="button">Random từ kho role còn lại</button><p>Hệ thống có thể rút role ngoài các lời mời đang hiện. Sau khi chọn, role này rời kho ứng viên ở lượt sau. Nếu bạn vắng mặt, quản trò có thể ghi lý do và chọn ngẫu nhiên hộ. Quản trò chờ đủ bảy role rồi mới bắt đầu. <span class="subline">Các nút ở wireframe chỉ minh họa.</span></p></div>
         <div class="panel space"><h2>Bảng quản trò khi có người vắng mặt</h2><p class="subline">Quản trò thấy thứ tự đã xáo và tiến độ; chỉ người tới lượt nhận ba lời mời riêng. Không có đồng hồ tự chọn ở bản đầu.</p><div class="row"><span>Lượt 1/7: Chi · đang chờ chọn</span><span class="badge gold">0 đã chọn · 7 chưa chọn</span></div><div class="field"><label for="draft-reason">Lý do chọn hộ</label><input id="draft-reason" placeholder="Ví dụ: Chi rời mạng và đồng ý để quản trò chọn hộ"></div><button class="soft" type="button">Chọn ngẫu nhiên hộ Chi</button></div>
       </section>
 
@@ -248,6 +253,32 @@
         </div>
       </section>
 
+      <section class="screen" id="vote-player" hidden>
+        <h1>Vote ban ngày · góc nhìn người chơi</h1>
+        <p class="lede">Màn riêng trong thanh điều hướng. Vòng được quản trò mở ở Ngày 0; người chơi chỉ thấy phiếu của chính mình, không thấy tổng số hay phiếu người khác.</p>
+        <div class="phasebar row"><strong>NGÀY 0 · ĐANG NHẬN PHIẾU</strong><span class="badge blue">Phiếu của bạn: chọn Bình</span></div>
+        <div class="grid">
+          <div class="stack">
+            <div class="panel"><h2>Phiếu của bạn</h2><p>Bạn đã chọn Bình. Có thể đổi hoặc rút đến khi quản trò đóng vòng.</p><div class="field"><label for="vote-player-target">Chọn người được công bố là sống</label><select id="vote-player-target"><option>Bình · ghế 2</option><option>An · ghế 1</option><option>Chi · ghế 3</option><option>Dũng · ghế 4</option></select></div><div class="actions"><button class="primary" type="button">Đổi phiếu</button><button class="soft" type="button">Bỏ qua</button><button class="soft" type="button">Rút phiếu</button></div><p class="subline">Không gửi phiếu cũng được. Bỏ qua được tính là đã gửi; rút phiếu không còn được tính.</p></div>
+            <div class="panel"><h2>Sau khi đóng vòng</h2><p>Trạng thái đổi thành <strong>Đã đóng</strong>. Nút gửi, đổi, bỏ qua và rút phiếu biến mất; phiếu của bạn vẫn đọc được. Kết quả chỉ hiện ở tab Thông báo nếu quản trò chọn công bố.</p></div>
+          </div>
+          <div class="stack"><div class="panel"><h2>Quyền riêng tư trong trận</h2><div class="notice">Người chơi không thấy danh sách phiếu, tổng hợp, quyết định và lý do kín của quản trò. Các dữ liệu gốc được lưu cho hồ sơ sau trận.</div><p class="subline">Một người chết kín nhưng chưa được công bố vẫn có thể vote; quyền vote dựa trên trạng thái đã công bố.</p></div></div>
+        </div>
+      </section>
+
+      <section class="screen" id="vote-host" hidden>
+        <h1>Vote ban ngày · góc nhìn quản trò</h1>
+        <p class="lede">Ví dụ bốn ghế: An chọn Bình, Bình chọn An, Chi bỏ qua, Dũng chưa gửi. Hai người được chọn hòa phiếu; quản trò vẫn được đóng vòng và tự quyết định.</p>
+        <div class="phasebar row"><div><strong>NGÀY 0 · ĐANG NHẬN PHIẾU</strong> <span class="subline">· 3/4 người đã chọn hoặc bỏ qua</span></div><button class="primary" type="button">Đóng vòng vote</button></div>
+        <div class="grid">
+          <div class="stack">
+            <div class="panel"><h2>Tổng hợp kín</h2><p><strong>Ghế 1 · An:</strong> 1 phiếu · <strong>Ghế 2 · Bình:</strong> 1 phiếu</p><p>Bỏ qua: 1 · Đã rút: 0 · Chưa gửi: 1</p><ul class="vote-ballots"><li><span>Ghế 1 · An</span><strong>Chọn Bình</strong></li><li><span>Ghế 2 · Bình</span><strong>Chọn An</strong></li><li><span>Ghế 3 · Chi</span><strong>Bỏ qua</strong></li><li><span>Ghế 4 · Dũng</span><strong>Chưa gửi</strong></li></ul><p class="subline">Bảng này chỉ quản trò xem được trong trận.</p></div>
+            <div class="panel"><h2>Sau khi đóng · quyết định thủ công</h2><div class="field"><label for="vote-host-result">Kết quả</label><textarea id="vote-host-result">Không loại ai</textarea></div><div class="field"><label for="vote-host-related">Người liên quan (tùy chọn)</label><select id="vote-host-related"><option>Không gắn người</option><option>An · ghế 1</option><option>Bình · ghế 2</option></select></div><div class="field"><label for="vote-host-reason">Lý do kín</label><textarea id="vote-host-reason">Hai người hòa phiếu; Chi bỏ qua và Dũng không gửi.</textarea></div><button class="primary" type="button">Xem xác nhận và lưu quyết định</button><p class="subline">Lưu quyết định không tự giết ai, chuyển pha hoặc công bố. Quản trò dùng thao tác người chơi riêng nếu cần đổi trạng thái.</p></div>
+          </div>
+          <div class="stack"><div class="panel"><h2>Công bố tùy chọn</h2><p>Chọn các phần được phép thấy ở tab Thông báo. Không bấm công bố thì quyết định vẫn kín trong trận.</p><div class="check-row"><input id="vote-publish-result" type="checkbox" checked><label for="vote-publish-result">Kết quả</label></div><div class="check-row"><input id="vote-publish-names" type="checkbox"><label for="vote-publish-names">Tên người đã gửi phiếu, không kèm lựa chọn</label></div><div class="check-row"><input id="vote-publish-reason" type="checkbox"><label for="vote-publish-reason">Lý do</label></div><div class="notice">Nội dung xem trước: Vote Ngày 0<br>Kết quả: Không loại ai</div><div class="actions"><button class="primary" type="button">Xác nhận công bố</button><button class="soft" type="button" data-screen="deaths">Xem tab Thông báo</button></div></div><div class="panel"><h2>Chuyển pha</h2><p>Vòng vote đang mở chặn chuyển pha và kết thúc trận. Màn điều khiển hiện cảnh báo cùng lối tắt về tab Vote. Sau khi đóng vòng, quản trò xác nhận chuyển pha như bình thường.</p></div></div>
+        </div>
+      </section>
+
       <section class="screen" id="host" hidden>
         <h1>Bàn điều khiển quản trò</h1><p class="lede">Quản trò chốt pha, xử lý yêu cầu và nhập mọi kết quả. Hành động cần lý do và được ghi sự kiện.</p>
         <div class="phasebar row"><div><strong>ĐÊM 1</strong> <span class="subline">· 2 yêu cầu đang chờ</span></div><div class="actions"><button class="soft" type="button">Tạm dừng</button><button class="primary" type="button">Kết thúc đêm → Ngày 1</button></div></div>
@@ -256,13 +287,13 @@
             <div class="panel"><div class="row"><h2>Người chơi</h2><span class="badge">Lọc: Tất cả</span></div><table class="table"><thead><tr><th>Tên</th><th>Role / Phe</th><th>Trạng thái</th><th>Yêu cầu</th></tr></thead><tbody><tr><td>Bình</td><td>Sói thường / Sói</td><td>Sống</td><td>1 chờ</td></tr><tr><td>Chi</td><td>Tiên Tri / Làng</td><td>Sống</td><td>1 chờ</td></tr><tr><td>Minh</td><td>Dân làng / Làng</td><td>Đã chết</td><td>—</td></tr></tbody></table></div>
             <div class="panel"><div class="row"><h2>Chi · Tiên Tri</h2><span class="badge green">Còn sống</span></div><p class="subline">Hiệu ứng: chưa có · Đội chat: không có</p><div class="actions"><button class="soft" type="button">Thêm hiệu ứng</button><button class="soft" type="button">Ghi chú</button><button class="danger" type="button">Giết</button><button class="soft" type="button">Hồi sinh</button><button class="soft" type="button">Đổi role/phe</button></div><div class="field"><label for="host-reason">Lý do quyết định (lưu vào nhật ký)</label><textarea id="host-reason" placeholder="Ví dụ: Sói chọn Chi; không có bảo vệ được xác nhận."></textarea></div><p class="subline">Nút thao tác trong wireframe không ghi dữ liệu.</p></div>
           </div>
-          <div class="stack"><div class="panel"><h2>Hộp thư yêu cầu</h2><div class="mini-card"><div class="row"><strong>Chi · yêu cầu dùng role</strong><span class="badge blue">Chờ xử lý</span></div><p>“Tôi muốn soi Lan trong đêm này.” · gửi 21:08</p><div class="actions"><button class="soft" type="button">Trả lời riêng</button><button class="primary" type="button">Chấp nhận</button><button class="danger" type="button">Từ chối</button></div></div><div class="mini-card space"><strong>Bình · yêu cầu dùng role</strong><p>“Tôi đề nghị giết Minh.” · gửi 21:10</p></div></div><div class="panel"><h2>Nhật ký trong trận</h2><div class="timeline"><div class="event"><time>21:01 · #18</time><p>Quản trò chuyển sang đêm 1.</p></div><div class="event private"><time>21:08 · #19 · kín</time><p>Chi gửi yêu cầu soi Lan.</p></div><div class="event dead"><time>21:12 · #20 · kín</time><p>Quản trò giết Minh; chưa công bố cho cả làng.</p></div></div><div class="actions"><button class="primary" type="button">Công bố Minh đã chết</button></div></div></div></div>
+          <div class="stack"><div class="panel"><h2>Hộp thư yêu cầu</h2><div class="mini-card"><div class="row"><strong>Chi · yêu cầu dùng role</strong><span class="badge blue">Chờ xử lý</span></div><p>“Tôi muốn soi Lan trong đêm này.” · gửi 21:08</p><div class="actions"><button class="soft" type="button">Trả lời riêng</button><button class="primary" type="button">Chấp nhận</button><button class="danger" type="button">Từ chối</button></div></div><div class="mini-card space"><strong>Bình · yêu cầu dùng role</strong><p>“Tôi đề nghị giết Minh.” · gửi 21:10</p></div></div><div class="panel"><h2>Công bố khi sẵn sàng</h2><p>Quản trò vừa đánh dấu Minh chết kín; người chơi vẫn thấy Minh đang sống cho tới khi quản trò công bố.</p><div class="actions"><button class="primary" type="button">Công bố Minh đã chết</button><button class="soft" type="button" data-screen="deaths">Xem tab Thông báo</button></div><p class="subline">Nội dung đã gửi có nút Sửa/Xóa ngay trên thẻ; bản gốc được giữ cho hồ sơ sau trận.</p></div></div></div>
         </div>
       </section>
 
       <section class="screen" id="deaths" hidden>
-        <h1>Thông báo người chết</h1><p class="lede">Ảnh chụp ngày 1, sau khi quản trò công bố. Role và nguyên nhân chỉ hiện nếu quản trò chọn công bố.</p>
-        <div class="grid"><div class="panel"><div class="row"><h2>Theo thứ tự công bố</h2><span class="badge red">1 người được công bố đã chết</span></div><div class="timeline"><div class="event dead"><time>Ngày 1 · 08:00 · thông báo #22</time><p><strong>Minh đã chết.</strong> Nguyên nhân và role chưa được công bố.</p></div><div class="event revive"><time>Ví dụ đính chính · thông báo #23</time><p><strong>Nếu Minh được hồi sinh và công bố:</strong> thêm dòng mới tại đây; dòng chết trước vẫn còn.</p></div></div></div><div class="panel"><h2>Quy tắc hiển thị</h2><p>Trạng thái chết/hồi sinh chỉ hiện sau khi quản trò công bố. Quản trò có thể tiết lộ thêm nguyên nhân, role hoặc lời nhắn.</p><div class="notice">Thông tin chưa công bố sẽ hiện trong bản tổng kết sau khi trận kết thúc.</div></div></div>
+        <h1>Thông báo đã công bố</h1><p class="lede">Gồm thông báo chết/hồi sinh và kết quả vote mà quản trò chọn đăng. Role, nguyên nhân, tên người gửi phiếu và lý do chỉ hiện nếu được chọn công bố.</p>
+        <div class="grid"><div class="panel"><div class="row"><h2>Lịch sử công khai</h2><span class="badge red">1 người được công bố đã chết</span></div><div class="timeline"><div class="event dead"><time>Ngày 1 · 08:00 · thông báo #22</time><p><strong>Minh đã chết.</strong> Nguyên nhân và role chưa được công bố.</p></div><div class="event revive"><time>Ví dụ hồi sinh · thông báo #23</time><p><strong>Nếu Minh được hồi sinh và công bố:</strong> thêm dòng mới tại đây; dòng chết trước vẫn còn.</p></div><div class="event vote"><time>Ngày 1 · kết quả vote đã công bố</time><p><strong>Vote Ngày 1:</strong> không loại ai. Tên người vote và lý do không được công bố ở ví dụ này.</p></div></div></div><div class="panel"><h2>Quy tắc hiển thị</h2><p>Trạng thái chết/hồi sinh chỉ hiện sau khi quản trò công bố. Kết quả vote cũng là thông báo tùy chọn.</p><div class="notice">Thông tin chưa công bố cùng bản gốc đã sửa/xóa được giữ trong hồ sơ sau trận. Quản trò sửa/xóa ngay cạnh từng thông báo đã đăng.</div></div></div>
       </section>
 
       <section class="screen" id="recap" hidden>

@@ -58,6 +58,17 @@ export default function RolePanel({ room, view, onRoomChanged }: {
     return () => { alive = false }
   }, [room.id, room.version, room.is_host])
 
+  useEffect(() => {
+    if (room.is_host || !['playing', 'finished'].includes(room.status)) return
+    let active = true
+    const timer = window.setInterval(() => {
+      void api<RoleAssignment | null>(`/api/rooms/${room.id}/roles/my-assignment`)
+        .then((latest) => { if (active) setAssignment(latest) })
+        .catch(() => {})
+    }, 8000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [room.id, room.status, room.is_host])
+
   async function run(action: () => Promise<void>, success: string): Promise<boolean> {
     setBusy(true); setError(''); setNotice('')
     try {
@@ -160,13 +171,13 @@ export default function RolePanel({ room, view, onRoomChanged }: {
     <div className="role-heading">
       <div><span className="eyebrow">{view === 'manage' ? 'THIẾT LẬP ROLE' : 'DANH MỤC CÔNG KHAI'}</span><h3 id="role-panel-title">{catalog?.name ?? 'Đang tải bộ role…'}</h3></div>
       <div className="role-heading-actions">
-        {catalog && <span className="role-total">{catalog.distribution_mode === 'draft' ? 'Chọn 1 trong 3' : `Tổng số bản: ${total}/${room.members.length}`}</span>}
+        {catalog && <span className="role-total">{catalog.distribution_mode === 'draft' ? 'Chọn tối đa 3 role' : `Tổng số bản: ${total}/${room.members.length}`}</span>}
         {editable && <button type="button" onClick={startCreate} disabled={busy}>+ Thêm role</button>}
         <button type="button" className="button-secondary" onClick={() => void refresh()} disabled={busy}>Tải lại role</button>
       </div>
     </div>
     <p>Mọi thành viên thấy mô tả đầy đủ của các role. Ai giữ role nào chỉ hiện riêng cho người đó và quản trò.</p>
-    {catalog?.locked && <p className="role-notice">Bộ role đã khóa cho ván này · {catalog.distribution_mode === 'draft' ? 'chọn 1 trong 3' : 'phát ngẫu nhiên'}.</p>}
+    {catalog?.locked && <p className="role-notice">Bộ role đã khóa cho ván này · {catalog.distribution_mode === 'draft' ? 'chọn tối đa 3 role' : 'phát ngẫu nhiên'}.</p>}
     {catalog && <div className="role-list">{catalog.roles.length ? catalog.roles.map((role) =>
       <article className={`role-card ${factionClass(role.faction_label)}`} key={role.id}>
         <div className="role-card-heading"><div className="role-title"><RoleIcon role={role} roomId={room.id} /><strong>{role.name}</strong></div><span className={`faction-badge ${factionClass(role.faction_label)}`}>{role.faction_label}</span></div>
@@ -183,7 +194,7 @@ export default function RolePanel({ room, view, onRoomChanged }: {
             Number(quantityDrafts[role.id]) < 0 || Number(quantityDrafts[role.id]) > 30 ||
             Number(quantityDrafts[role.id]) === role.quantity}>Lưu số bản</button>
         </form> : catalog.distribution_mode === 'draft' ?
-          <small>{catalog.draft_config?.candidate_role_ids.includes(role.id) ? 'Ứng viên chọn 1 trong 3' : 'Không nằm trong bộ ứng viên'}</small> :
+          <small>{catalog.draft_config?.candidate_role_ids.includes(role.id) ? 'Nằm trong kho chọn role' : 'Không nằm trong bộ ứng viên'}</small> :
           <small>Số bản: {role.quantity}</small>}
         <small>Yêu cầu: {role.request_phases.length ? role.request_phases.map(phaseName).join(', ') : 'không chủ động'}{role.request_when_dead ? ' · được gửi khi chết' : ''}</small>
         <small>Chat quản trò: {role.host_contact.can_initiate ? `mở lúc ${role.host_contact.initiate_phases.map(phaseName).join(', ') || 'không có pha'}` : 'không tự mở'}{role.host_contact.reply_allowed ? ' · được trả lời khi quản trò mở' : ''}{role.host_contact.when_dead ? ' · được liên hệ khi chết' : ''}</small>

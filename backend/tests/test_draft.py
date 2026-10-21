@@ -66,8 +66,7 @@ def test_draft_seven_players_mixed_factions_private_offers_and_host_random() -> 
         url = f"/api/rooms/{room['id']}"
         all_roles = [role for group in roles.values() for role in group]
         by_id = {role["id"]: role for role in all_roles}
-        config = {"candidate_role_ids": [role["id"] for role in all_roles],
-            "allow_duplicate_roles": True}
+        config = {"candidate_role_ids": [role["id"] for role in all_roles]}
         try:
             assert (await outsider.get(f"{url}/roles/draft/status")).status_code == 403
             assert (await post(players[0], f"{url}/roles/draft/start", config)).status_code == 403
@@ -91,8 +90,7 @@ def test_draft_seven_players_private_offers_and_host_random() -> None:
         url = f"/api/rooms/{room['id']}"
         all_roles = [role for group in roles.values() for role in group]
         by_id = {role["id"]: role for role in all_roles}
-        config = {"candidate_role_ids": [role["id"] for role in all_roles],
-                  "allow_duplicate_roles": True}
+        config = {"candidate_role_ids": [role["id"] for role in all_roles]}
         try:
             started = await post(host, f"{url}/roles/draft/start", config)
             assert started.status_code == 200
@@ -105,18 +103,20 @@ def test_draft_seven_players_private_offers_and_host_random() -> None:
             assert (await post(host, f"{url}/game/start")).status_code == 409
             catalog = (await players[0].get(f"{url}/role-catalog")).json()
             assert catalog["locked"] and catalog["distribution_mode"] == "draft"
-            assert set(catalog["draft_config"]) == {"candidate_role_ids", "allow_duplicate_roles"}
+            assert set(catalog["draft_config"]) == {"candidate_role_ids"}
             assert "turn_order" not in catalog["draft_config"]
             assert len(catalog["roles"]) == 9 and all("user_id" not in role for role in catalog["roles"])
 
             client_by_id = {user_id: client for user_id, client in zip(ids[2:], players)}
             first_offers = started.json()["host_turns"][0]["offers"]
             assert set(first_offers).issubset(by_id)
+            chosen_ids = set()
             for turn_index in range(1, 8):
                 status = (await host.get(f"{url}/roles/draft/status")).json()
                 current = status["host_turns"][turn_index - 1]
                 assert status["current_turn"] == turn_index
                 assert len(current["offers"]) == len(set(current["offers"])) == 3
+                assert chosen_ids.isdisjoint(current["offers"])
                 actor = client_by_id[current["user_id"]]
                 own = (await actor.get(f"{url}/roles/draft/status")).json()
                 assert own["my_turn"] == turn_index and own["host_turns"] is None
@@ -142,11 +142,14 @@ def test_draft_seven_players_private_offers_and_host_random() -> None:
                 else:
                     assert (await post(actor, f"{url}/roles/draft/choose",
                                        {"role_id": current["offers"][0]})).status_code == 200
+                after = (await host.get(f"{url}/roles/draft/status")).json()
+                chosen_ids.add(after["host_turns"][turn_index - 1]["chosen_role_id"])
             final = (await host.get(f"{url}/roles/draft/status")).json()
             assert final["status"] == "assigned" and final["completed"] == 7
             assert final["current_turn"] is None
             assigned = (await host.get(f"{url}/roles/assignments")).json()
             assert len(assigned) == len({item["user_id"] for item in assigned}) == 7
+            assert len({item["role"]["id"] for item in assigned}) == 7
             assert all(item["role"]["id"] in by_id for item in assigned)
             assert (await players[0].get(f"{url}/roles/assignments")).status_code == 403
             assert (await outsider.get(f"{url}/role-catalog")).status_code == 403
@@ -202,8 +205,10 @@ def test_no_duplicate_draft_uses_only_one_candidate_per_player() -> None:
         host, _, *players = clients
         url = f"/api/rooms/{room['id']}"
         role_ids = [role["id"] for role in roles["Làng"]]
-        config = {"candidate_role_ids": role_ids[:3], "allow_duplicate_roles": False}
+        config = {"candidate_role_ids": role_ids[:3]}
         try:
+            assert (await post(host, f"{url}/roles/draft/start", {**config,
+                "allow_duplicate_roles": True})).status_code == 422
             assert (await post(host, f"{url}/roles/draft/start", {**config,
                 "candidate_role_ids": role_ids[:2]})).status_code == 409
             assert (await post(host, f"{url}/roles/draft/start", config)).status_code == 200
@@ -235,7 +240,7 @@ def test_random_draft_choice_can_draw_role_outside_offers(monkeypatch) -> None:
         role_ids = [role["id"] for role in roles["Làng"]]
         try:
             started = await post(host, f"{url}/roles/draft/start", {
-                "candidate_role_ids": role_ids, "allow_duplicate_roles": False})
+                "candidate_role_ids": role_ids})
             assert started.status_code == 200
             turn = started.json()["host_turns"][0]
             outside_id = next(role_id for role_id in role_ids if role_id not in turn["offers"])
@@ -254,6 +259,8 @@ def test_random_draft_choice_can_draw_role_outside_offers(monkeypatch) -> None:
                 result = await post(actor, f"{url}/roles/draft/choose", {"choose_random": True})
             assert result.status_code == 200
             assert (await host.get(f"{url}/roles/draft/status")).json()["host_turns"][0]["chosen_role_id"] == outside_id
+            next_turn = (await host.get(f"{url}/roles/draft/status")).json()["host_turns"][1]
+            assert outside_id not in next_turn["offers"]
         finally:
             await stack.aclose()
             await cleanup(room["id"], ids)

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_user, require_room_access
 from app.db.events import append_event
-from app.db.models import RoleAssignment, RoleDefinition, RoleIcon, RoleSet, RoleSnapshot, Room, RoomMember, User
+from app.db.models import PlayerState, RoleAssignment, RoleDefinition, RoleIcon, RoleSet, RoleSnapshot, Room, RoomMember, User
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/rooms/{room_id}", tags=["roles"])
@@ -117,6 +117,18 @@ def snapshot_role_data(role: dict) -> dict:
     return {"seer_result": "Chưa thiết lập", "icon_key": "auto", "icon_id": None, **role}
 
 
+def effective_role_data(definitions: dict[str, dict], assigned_role_id: UUID,
+                        state: PlayerState | None) -> dict:
+    role_id = str(state.current_role_id or assigned_role_id) if state else str(assigned_role_id)
+    data = snapshot_role_data(definitions[role_id]).copy()
+    if state is not None:
+        if state.faction_label_override is not None:
+            data["faction_label"] = state.faction_label_override
+        if state.team_chat_override_set:
+            data["team_chat_label"] = state.team_chat_label_override
+    return data
+
+
 async def validate_role_icon(db: AsyncSession, room_id: UUID, body: RoleInput) -> None:
     if body.icon_id is None:
         return
@@ -148,8 +160,7 @@ async def get_catalog(room_id: UUID, user: User = Depends(current_user),
     await require_room_access(db, room_id, user.id)
     snapshot = await db.get(RoleSnapshot, room_id)
     if snapshot is not None:
-        public_draft = ({key: snapshot.settings[key] for key in
-                         ("candidate_role_ids", "allow_duplicate_roles")}
+        public_draft = ({"candidate_role_ids": snapshot.settings["candidate_role_ids"]}
                         if snapshot.distribution_mode == "draft" else None)
         return CatalogOutput(name=snapshot.set_name, locked=True,
                              distribution_mode=snapshot.distribution_mode,
@@ -316,8 +327,11 @@ async def snapshot_assignments(db: AsyncSession, room_id: UUID) -> list[Assignme
         return []
     by_id = {role["id"]: role for role in snapshot.definitions}
     rows = (await db.scalars(select(RoleAssignment).where(RoleAssignment.room_id == room_id))).all()
+    states = (await db.scalars(select(PlayerState).where(PlayerState.room_id == room_id))).all()
+    by_user = {state.user_id: state for state in states}
     return [AssignmentOutput(user_id=row.user_id,
-                             role=RoleOutput.model_validate(snapshot_role_data(by_id[str(row.role_id)])))
+                             role=RoleOutput.model_validate(effective_role_data(
+                                 by_id, row.role_id, by_user.get(row.user_id))))
             for row in rows]
 
 

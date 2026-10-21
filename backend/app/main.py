@@ -15,7 +15,13 @@ from app.rooms import router as rooms_router
 from app.roles import router as roles_router
 from app.draft import router as draft_router
 from app.icons import router as icons_router
-from app.player_state import router as player_state_router
+from app.player_state import notices_router, router as player_state_router
+from app.private_messages import router as private_messages_router
+from app.demo import router as demo_router
+from app.event_corrections import router as event_corrections_router
+from app.content_revisions import router as content_revisions_router
+from app.votes import router as votes_router
+from app.chat import router as chat_router
 
 app = FastAPI(title="Ma Sói Web API", version="0.1.0")
 app.include_router(rooms_router)
@@ -23,6 +29,13 @@ app.include_router(roles_router)
 app.include_router(draft_router)
 app.include_router(icons_router)
 app.include_router(player_state_router)
+app.include_router(notices_router)
+app.include_router(private_messages_router)
+app.include_router(demo_router)
+app.include_router(event_corrections_router)
+app.include_router(content_revisions_router)
+app.include_router(votes_router)
+app.include_router(chat_router)
 
 
 class GuestInput(BaseModel):
