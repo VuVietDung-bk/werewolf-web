@@ -28,6 +28,43 @@ export type Room = RoomSummary & {
   members: RoomMember[]
 }
 
+export type TranscriptInfo = {
+  room_id: string
+  room_name: string
+  result_label: string | null
+  result_reason: string | null
+  ended_at: string | null
+  members: Record<string, string>
+  roles: Record<string, string>
+  limitation: string
+}
+export type TranscriptEvent = {
+  id: string
+  sequence: number
+  created_at: string
+  actor_user_id: string | null
+  client_request_id: string | null
+  actor_name: string | null
+  kind: string
+  visibility: string
+  phase_type: string | null
+  round_number: number | null
+  subject_user_id: string | null
+  subject_name: string | null
+  reason: string | null
+  before: unknown
+  after: unknown
+  related_event_ids: string[]
+  references: Record<string, string>
+  payload: Record<string, unknown>
+}
+export type TranscriptPage = {
+  info: TranscriptInfo
+  events: TranscriptEvent[]
+  next_after_sequence: number | null
+  total: number
+}
+
 export type Role = {
   id: string
   name: string

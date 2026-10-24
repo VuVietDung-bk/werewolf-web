@@ -1,0 +1,73 @@
+{
+  "scenario": {
+    "rooms": 20,
+    "players_per_room": 25,
+    "player_sockets": 500,
+    "duration_seconds": 600,
+    "target_chat_per_second": 25,
+    "chat_offered": 15000,
+    "burst_commands": 50,
+    "burst_span_seconds": 1.0,
+    "burst_launch_to_complete_seconds": 1.031
+  },
+  "machine": {
+    "platform": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+    "logical_cpus": 20,
+    "cpu_quota": "unknown",
+    "memory_limit_bytes": "unknown"
+  },
+  "http_chat": {
+    "n": 15000,
+    "p50_ms": 25.695,
+    "p95_ms": 46.743,
+    "p99_ms": 117.646,
+    "max_ms": 923.93
+  },
+  "host_commands": {
+    "n": 25,
+    "p50_ms": 40.144,
+    "p95_ms": 77.931,
+    "p99_ms": 81.223,
+    "max_ms": 82.023
+  },
+  "ballots": {
+    "n": 25,
+    "p50_ms": 39.507,
+    "p95_ms": 77.497,
+    "p99_ms": 82.007,
+    "max_ms": 83.126
+  },
+  "websocket_delivery": {
+    "n": 375000,
+    "p50_ms": 170.328,
+    "p95_ms": 287.748,
+    "p99_ms": 343.347,
+    "max_ms": 1022.973
+  },
+  "whole_message_delivery": {
+    "n": 15000,
+    "p50_ms": 170.566,
+    "p95_ms": 287.966,
+    "p99_ms": 343.516,
+    "max_ms": 1022.973
+  },
+  "delivery_under_2s_percent": 100.0,
+  "host_under_500ms_percent": 100.0,
+  "http_successful_chat": 15000,
+  "postgres_chat_events": 15000,
+  "acknowledged_chat_missing_from_db": 0,
+  "websocket_missing_deliveries": 0,
+  "websocket_duplicate_frames": 0,
+  "event_counts": {
+    "event.announcement_decided": 25,
+    "vote.opened": 20,
+    "vote.ballot_submitted": 25,
+    "chat.sent": 15000,
+    "event.custom_announcement": 25
+  },
+  "outbox_count": 15095,
+  "database_bytes": 58563607,
+  "failures": {},
+  "websocket_errors": {},
+  "meets_targets": true
+}

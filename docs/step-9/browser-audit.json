@@ -1,0 +1,131 @@
+{
+  "home_desktop": {
+    "missingAlt": 0,
+    "images": [],
+    "motion": false,
+    "heading": "Câu chuyện của ngôi làng bắt đầu ở đây.",
+    "background": "linear-gradient(90deg, rgba(16, 22, 38, 0.95) 0%, rgba(16, 22, 38, 0.76) 38%, rgba(16, 22, 38, 0.133) 75%), url(\"http://127.0.0.1:4173/assets/v1/lobby-night-v1.webp\")",
+    "navigationMs": 36,
+    "requestedAssets": [
+      "/assets/index-BVRJ8WST.js",
+      "/assets/index-BSMEIEiw.css",
+      "/assets/v1/lobby-night-v1.webp"
+    ]
+  },
+  "game_desktop": {
+    "missingAlt": 0,
+    "images": [],
+    "motion": false,
+    "heading": "Thôn Sương",
+    "background": "linear-gradient(90deg, rgba(7, 16, 31, 0.91) 0%, rgba(7, 16, 31, 0.72) 52%, rgba(7, 16, 31, 0.55) 100%), url(\"http://127.0.0.1:4173/assets/v1/village-day-v1.webp\")",
+    "navigationMs": 36,
+    "requestedAssets": [
+      "/assets/index-BVRJ8WST.js",
+      "/assets/index-BSMEIEiw.css",
+      "/assets/v1/lobby-night-v1.webp",
+      "/assets/GameControls-CwmaLiZ_.js",
+      "/assets/v1/village-day-v1.webp"
+    ]
+  },
+  "catalog": {
+    "missingAlt": 0,
+    "images": [
+      {
+        "src": "/assets/v1/role-seer-v1-128.png",
+        "alt": "",
+        "loaded": true
+      }
+    ],
+    "motion": false,
+    "heading": "Thôn Sương",
+    "background": null,
+    "navigationMs": 36,
+    "requestedAssets": [
+      "/assets/index-BVRJ8WST.js",
+      "/assets/index-BSMEIEiw.css",
+      "/assets/v1/lobby-night-v1.webp",
+      "/assets/GameControls-CwmaLiZ_.js",
+      "/assets/v1/village-day-v1.webp",
+      "/assets/RolePanel-Cx1vxFoo.js",
+      "/assets/factions-2PjsM_mJ.js",
+      "/assets/v1/role-seer-v1-128.png"
+    ]
+  },
+  "console_errors": [],
+  "home_mobile_reduced_motion": {
+    "missingAlt": 0,
+    "images": [],
+    "motion": true,
+    "heading": "Câu chuyện của ngôi làng bắt đầu ở đây.",
+    "background": "linear-gradient(rgba(16, 22, 38, 0.667) 0%, rgba(16, 22, 38, 0.72) 45%, rgba(16, 22, 38, 0.93) 100%), url(\"http://127.0.0.1:4173/assets/v1/lobby-night-v1.webp\")",
+    "navigationMs": 31,
+    "requestedAssets": [
+      "/assets/index-BVRJ8WST.js",
+      "/assets/index-BSMEIEiw.css",
+      "/assets/v1/lobby-night-v1.webp"
+    ]
+  },
+  "game_mobile_reduced_motion": {
+    "missingAlt": 0,
+    "images": [],
+    "motion": true,
+    "heading": "Thôn Sương",
+    "background": "linear-gradient(90deg, rgba(7, 16, 31, 0.91) 0%, rgba(7, 16, 31, 0.72) 52%, rgba(7, 16, 31, 0.55) 100%), url(\"http://127.0.0.1:4173/assets/v1/village-day-v1.webp\")",
+    "navigationMs": 31,
+    "requestedAssets": [
+      "/assets/index-BVRJ8WST.js",
+      "/assets/index-BSMEIEiw.css",
+      "/assets/v1/lobby-night-v1.webp",
+      "/assets/GameControls-CwmaLiZ_.js",
+      "/assets/v1/village-day-v1.webp"
+    ]
+  },
+  "missing_art": {
+    "missingAlt": 0,
+    "images": [],
+    "motion": false,
+    "heading": "Câu chuyện của ngôi làng bắt đầu ở đây.",
+    "background": "linear-gradient(rgba(16, 22, 38, 0.667) 0%, rgba(16, 22, 38, 0.72) 45%, rgba(16, 22, 38, 0.93) 100%), url(\"http://127.0.0.1:4173/assets/v1/lobby-night-v1.webp\")",
+    "navigationMs": 33,
+    "requestedAssets": [
+      "/assets/index-BVRJ8WST.js",
+      "/assets/index-BSMEIEiw.css",
+      "/assets/v1/seer-concept.webp",
+      "/assets/v1/missing-icon.webp",
+      "/assets/v1/lobby-night-v1.webp"
+    ]
+  },
+  "missing_art_fallback": 1,
+  "slow_home_heading_ms": 799,
+  "slow_home_all_resources_ms": 3196,
+  "slow_home": {
+    "missingAlt": 0,
+    "images": [],
+    "motion": false,
+    "heading": "Câu chuyện của ngôi làng bắt đầu ở đây.",
+    "background": "linear-gradient(rgba(16, 22, 38, 0.667) 0%, rgba(16, 22, 38, 0.72) 45%, rgba(16, 22, 38, 0.93) 100%), url(\"http://127.0.0.1:4173/assets/v1/lobby-night-v1.webp\")",
+    "navigationMs": 760,
+    "requestedAssets": [
+      "/assets/index-BVRJ8WST.js",
+      "/assets/index-BSMEIEiw.css",
+      "/assets/v1/lobby-night-v1.webp"
+    ]
+  },
+  "slow_game_heading_ms": 842,
+  "slow_game_all_resources_ms": 2589,
+  "slow_game": {
+    "missingAlt": 0,
+    "images": [],
+    "motion": false,
+    "heading": "Thôn Sương",
+    "background": "linear-gradient(90deg, rgba(7, 16, 31, 0.91) 0%, rgba(7, 16, 31, 0.72) 52%, rgba(7, 16, 31, 0.55) 100%), url(\"http://127.0.0.1:4173/assets/v1/village-day-v1.webp\")",
+    "navigationMs": 760,
+    "requestedAssets": [
+      "/assets/index-BVRJ8WST.js",
+      "/assets/index-BSMEIEiw.css",
+      "/assets/v1/lobby-night-v1.webp",
+      "/assets/GameControls-CwmaLiZ_.js",
+      "/assets/v1/village-day-v1.webp"
+    ]
+  }
+}

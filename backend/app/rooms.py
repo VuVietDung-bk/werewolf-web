@@ -138,9 +138,10 @@ async def create_room(
 async def my_rooms(
     user: User = Depends(current_user), db: AsyncSession = Depends(get_db)
 ) -> list[RoomSummary]:
-    active = select(RoomMember.room_id).where(
-        RoomMember.user_id == user.id, RoomMember.left_at.is_(None),
+    active = select(RoomMember.room_id).join(Room, Room.id == RoomMember.room_id).where(
+        RoomMember.user_id == user.id,
         RoomMember.consent_version == POSTGAME_POLICY_VERSION,
+        or_(RoomMember.left_at.is_(None), Room.status == "finished"),
     )
     rooms = (await db.scalars(
         select(Room).where(or_(Room.owner_user_id == user.id, Room.id.in_(active)))

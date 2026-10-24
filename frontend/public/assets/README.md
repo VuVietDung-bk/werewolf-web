@@ -4,13 +4,14 @@
 - Tên file dùng chữ thường, số và dấu gạch ngang: `<nhóm>-<đối-tượng>-<biến-thể>-<cỡ>.png|webp` (ví dụ `role-seer-night-32.webp`).
 - Thư viện `role-*-v1-128.png` có 7 icon nền trong suốt: generic, village, wolf, neutral, seer, hunter, potion. Ảnh gốc do ImageGen tạo theo prompt pixel art Ma Sói huyền bí tối màu, sau đó thu về 128×128 bằng nearest-neighbor để tải nhanh (toàn bộ khoảng 128 KiB). Các bản sửa phải đặt tên mới.
 - Dùng PNG hoặc WebP tĩnh; giữ alpha khi có nền trong suốt. `PixelAsset` nhận cả hai định dạng và hiện nhãn khi ảnh vắng mặt hoặc lỗi.
-- `v1/seer-concept.png` là bản concept từ `docs/step-1/assets/`, dùng để thử khung ảnh; không dùng làm icon role. Icon quản trò tải lên lưu trong bảng `role_icons` của PostgreSQL, không ở thư mục asset tĩnh.
-- `v1/lobby-night-v1.png` là nền sảnh tạo bằng ImageGen từ `docs/step-1/assets/lobby-concept.png`, theo hướng Ma Sói huyền bí tối màu đã chốt. Ảnh có nội dung trang trí; mọi chữ, mã mời, trạng thái ghế và thao tác nằm trong HTML/CSS phía trên.
-- `v1/village-day-v1.png` là biến thể ban ngày cho màn trận và bàn quản trò, tạo bằng built-in ImageGen từ `v1/lobby-night-v1.png`. Màn đêm dùng chính nền sảnh; lớp phủ tối đặt bằng CSS để chữ dễ đọc. Biểu tượng hiệu ứng/chết/hồi sinh được vẽ theo lưới pixel trong `StatusGlyph.tsx` và luôn đi cùng nhãn chữ.
+- `v1/seer-concept.webp` là bản concept từ `docs/step-1/assets/`, chỉ tải khi mở `?asset-demo`; không dùng làm icon role. Icon quản trò tải lên lưu trong bảng `role_icons` của PostgreSQL, không ở thư mục asset tĩnh.
+- `v1/lobby-night-v1.webp` là nền sảnh tạo bằng ImageGen từ `docs/step-1/assets/lobby-concept.png`, theo hướng Ma Sói huyền bí tối màu đã chốt. Ảnh có nội dung trang trí; mọi chữ, mã mời, trạng thái ghế và thao tác nằm trong HTML/CSS phía trên.
+- `v1/village-day-v1.webp` là biến thể ban ngày cho màn trận và bàn quản trò, tạo bằng built-in ImageGen từ nền đêm. Màn đêm dùng chính nền sảnh; lớp phủ tối đặt bằng CSS để chữ dễ đọc. Biểu tượng hiệu ứng/chết/hồi sinh được vẽ theo lưới pixel trong `StatusGlyph.tsx` và luôn đi cùng nhãn chữ.
+- PNG gốc của ba ảnh trên lưu trong `docs/art-source/v1/` để chỉnh sửa về sau; không nằm trong bản build. WebP hiện tại mã hóa ở chất lượng 90, giữ nguyên kích thước pixel.
 - Ba icon tab chat được vẽ trực tiếp bằng SVG lưới pixel trong `ChatGlyph.tsx`; nhãn chữ và dấu **Mới** là HTML để luôn đọc được ở hai cỡ màn hình.
 - Icon trạng thái yêu cầu và loại thông báo ở `StoryGlyph.tsx` là SVG lưới 12×12 pixel, dùng màu theo trạng thái/loại đã công bố; icon ổ khóa cho mục giữ kín chỉ được ghép trong giao diện quản trò. Mọi icon đi cùng nhãn chữ.
 - Không đặt tên người giữ role hoặc thông tin phân role kín trong URL asset công khai.
 
-Prompt của `village-day-v1.png`:
+Prompt của `village-day-v1.webp` (nguồn PNG):
 
 > Use case: stylized-concept. Asset type: panoramic pixel-art background for the Day phase of a dark mystical Werewolf browser game. Edit the provided village-at-night artwork into the same village at early morning. Preserve the village layout, camera position, buildings, mountains, trees, paths, pixel-art texture and wide composition. Replace the moon with soft sunrise light and a pale gold sky; keep mysterious atmosphere with cool blue shadows and muted amber light. Keep center and lower middle visually quiet so web UI text and player cards can sit over a dark overlay. No characters, lettering, logos, UI, or watermark. This is a daylight variant of the provided image, not a new scene.

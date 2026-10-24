@@ -81,14 +81,15 @@ def secure_cookie() -> bool:
 
 
 async def require_room_access(db: AsyncSession, room_id: UUID, user_id: UUID) -> bool:
-    """Return host status; reject users outside the room or who have left."""
+    """Return host status; former consenting members regain access after the game."""
     room = await db.get(Room, room_id)
     if room is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy phòng")
     if room.owner_user_id == user_id:
         return True
     member = await db.get(RoomMember, (room_id, user_id))
-    if member is None or member.left_at is not None or member.consent_version != POSTGAME_POLICY_VERSION:
+    if (member is None or member.consent_version != POSTGAME_POLICY_VERSION
+            or (member.left_at is not None and room.status != "finished")):
         raise HTTPException(status_code=403, detail="Không có quyền vào phòng")
     return False
 

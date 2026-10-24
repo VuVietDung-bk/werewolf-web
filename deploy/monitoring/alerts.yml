@@ -1,0 +1,66 @@
+groups:
+  - name: ma-soi-operations
+    rules:
+      - alert: MaSoiApiDown
+        expr: up{job="ma_soi_api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: API metrics scrape failed
+      - alert: MaSoiPostgresDown
+        expr: ma_soi_postgres_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: API cannot query PostgreSQL
+      - alert: MaSoiRedisDown
+        expr: ma_soi_redis_up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Redis unavailable; WebSocket feeds use PostgreSQL polling
+      - alert: MaSoiWorkerStale
+        expr: (ma_soi_outbox_worker_heartbeat_age_seconds > 20 or ma_soi_outbox_worker_heartbeat_age_seconds < 0) and on(instance) (ma_soi_redis_up == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Outbox worker has no fresh heartbeat
+      - alert: MaSoiOutboxDelayed
+        expr: ma_soi_outbox_oldest_age_seconds > 30 and on(instance) ma_soi_outbox_pending > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Oldest unpublished event has waited over 30 seconds
+      - alert: MaSoiHttpErrors
+        expr: (sum(rate(ma_soi_http_requests_total{status_class="5xx"}[5m])) / clamp_min(sum(rate(ma_soi_http_requests_total[5m])), 0.001) > 0.05) and (sum(rate(ma_soi_http_requests_total[5m])) > 0.2)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 5% HTTP failures under active traffic
+      - alert: MaSoiCommandLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(ma_soi_http_request_duration_seconds_bucket{method=~"POST|PATCH|PUT|DELETE"}[5m]))) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: p95 mutation latency exceeds 500 ms
+      - alert: MaSoiConnectionsHigh
+        expr: ma_soi_websocket_connections > 550
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: WebSocket connection count exceeds capacity target
+      - alert: MaSoiDatabaseLarge
+        expr: ma_soi_database_size_bytes > 5368709120
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: PostgreSQL database exceeds 5 GiB; review storage

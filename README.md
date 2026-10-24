@@ -4,18 +4,35 @@ Nền tảng mới cho trò chơi Ma Sói do quản trò điều hành. Mã bot 
 
 ## Chạy local
 
-Yêu cầu: Python 3.10+, Node 22.12+, npm, Docker Compose (cho PostgreSQL ở các bước dùng DB). Compose dùng cổng host **5433** để tránh trùng PostgreSQL có sẵn ở 5432.
+Yêu cầu: Python 3.10+, Node 22.12+, npm, Docker Compose. Compose dùng cổng host **5433** cho PostgreSQL và **6380** cho Redis.
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres redis
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e './backend[dev]'
 export DATABASE_URL=postgresql+psycopg://ma_soi:ma_soi_local_only@127.0.0.1:5433/ma_soi
 export APP_ENV=local
+export REDIS_URL=redis://127.0.0.1:6380/0
 alembic -c backend/alembic.ini upgrade head
 uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
+
+Trong terminal riêng, dùng cùng `DATABASE_URL` và `REDIS_URL` rồi chạy worker phát outbox:
+
+```bash
+.venv/bin/python -m app.outbox_worker
+```
+
+Redis và worker giúp đánh thức WebSocket nhanh sau khi sự kiện đã commit. Nếu một trong hai tạm ngắt, API vẫn đọc sự kiện từ PostgreSQL định kỳ; worker sẽ thử phát lại hàng outbox còn chờ khi Redis trở lại. Có thể chạy API không đặt `REDIS_URL` để dùng riêng PostgreSQL. [Diễn tập phục hồi bước 9.1](docs/step-9/progress.md).
+
+Sao lưu local bằng `BACKUP_DIR=backups bash scripts/postgres_maintenance.sh backup`; khôi phục thử sang DB mới bằng `bash scripts/postgres_maintenance.sh restore-check backups/TEN_FILE.dump restore_test_1`. Xem [runbook sao lưu/khôi phục](docs/step-9/backup-restore.md) trước khi đặt lịch và bật xóa dữ liệu.
+
+Chủ dự án đã chọn xóa phòng trên web từ 90 ngày sau khi ván kết thúc và giữ mỗi bản sao DB tối đa 7 ngày. [Mẫu lịch vận hành](deploy/maintenance.cron.example) dọn backup cũ và chạy backup/xóa phòng hằng ngày; lịch này được cài khi triển khai production ở bước 10.4, chưa chạy tự động trên máy local.
+
+Giám sát: đặt `METRICS_TOKEN` rồi gọi `GET /internal/metrics` bằng bearer token trên mạng nội bộ. [Runbook bước 9.3](docs/step-9/monitoring.md) có dashboard Grafana, rule Prometheus và cách xử lý cảnh báo; scrape và kênh nhận cảnh báo được cài ở bước 10.4.
+
+[Báo cáo thử tải bước 9.5](docs/step-9/load-test.md) có script chạy lại, cấu hình local và số liệu 500 người chơi. Kịch bản 50 lệnh trải trong một giây đạt ngưỡng; ca 50 lệnh đồng thời được ghi riêng vì p95 lệnh quản trò vượt 500 ms.
 
 Trong terminal khác:
 
@@ -58,13 +75,15 @@ Mở giao diện ở `http://localhost:5173`, nhập tên để tạo phiên kh�
 
 Các lệnh HTTP thay đổi dữ liệu và kết nối WebSocket phải có `Origin` nằm trong `APP_ORIGINS`. Cookie mặc định có `Secure`; chỉ đặt `APP_ENV=local` khi dùng HTTP trên máy phát triển. Mọi quyền phòng được lấy từ DB; role/phe do client khai không cấp quyền.
 
+[Rà soát bảo mật bước 9.4](docs/step-9/security-review.md) ghi kết quả kiểm tra cookie, CSRF, WebSocket, XSS, giới hạn chat/yêu cầu và log. API chỉ ghi method, mẫu route và status vào access log; khi triển khai cần kiểm tra thêm log và giới hạn tần suất của reverse proxy.
+
 ## Sảnh chờ
 
 Quản trò tạo phòng từ giao diện, chọn 2–30 ghế và chia sẻ mã mời 12 ký tự. Người chơi nhập mã và xác nhận rằng toàn bộ chat đội, chat riêng với quản trò, yêu cầu role và quyết định quản trò sẽ được công bố cho người từng tham gia phòng sau trận. Quản trò không chiếm ghế. Trong sảnh, quản trò có thể đổi tên, số ghế và mở/đóng đăng ký; người chơi có thể rời rồi vào lại khi đăng ký còn mở. Danh sách ghế lưu trong PostgreSQL, khôi phục sau khi tải lại hoặc khởi động lại API.
 
 API: `POST /api/rooms`, `POST /api/rooms/join`, `GET /api/rooms/mine`, `GET /api/rooms/{id}`, `PATCH /api/rooms/{id}/settings`, `POST /api/rooms/{id}/leave`. Các thao tác thay đổi phòng ghi sự kiện và outbox trong cùng giao dịch. Cấp ghế khóa hàng phòng để tránh vượt giới hạn khi có nhiều người vào cùng lúc.
 
-Sự kiện phòng dùng `game_events` theo số thứ tự và `outbox` ghi trong cùng giao dịch. Hàm `app.db.events.append_event` nhận session đang trong giao dịch; caller phải commit sau khi cập nhật trạng thái. Worker phát outbox sẽ được thêm ở bước vận hành.
+Sự kiện phòng dùng `game_events` theo số thứ tự và `outbox` ghi trong cùng giao dịch. Hàm `app.db.events.append_event` nhận session đang trong giao dịch; caller phải commit sau khi cập nhật trạng thái. Worker riêng đọc outbox và phát tín hiệu Redis; WebSocket luôn đọc dữ liệu đã commit từ PostgreSQL.
 
 ## Role tùy chỉnh và cách phát role
 
@@ -88,7 +107,7 @@ Trong tab **Vote**, quản trò có thể mở/đóng vote ban ngày, kể cả 
 
 Tab **Chat** có chat chung, chat đội và chat với quản trò. Chat chung mở từ sảnh, lúc chọn role và Ngày 0, rồi các ngày tiếp theo; mặc định ban đêm chỉ đọc. Chat đội mặc định gửi ban đêm cho đội hiện tại; tin đã nhận vẫn đọc được sau khi đổi đội hoặc chết, còn người mới vào đội không thấy tin cũ. Quản trò có thể đổi quyền chat ban đêm/ban ngày và quyền người chết, kèm lý do và xác nhận; tạm dừng luôn chặn gửi. Chat quản trò kiểm tra quyền mở/trả lời theo role hiện tại; role bị động chỉ trả lời khi quản trò đã mở và cấu hình cho phép. Quản trò chọn đội hoặc người chơi trong tab Chat. Tab **Tin riêng** cũ vẫn hiển thị các thông điệp một chiều quản trò gửi từ Bàn quản trò; người chơi có thể trả lời qua Chat quản trò nếu role cho phép. Chat lưu trong PostgreSQL và tải tin cũ theo trang. WebSocket báo tin mới ngay cho đúng người nhận, tự nối lại với cursor khi đứt mạng; màn Chat cũng hỏi API mỗi 5 giây, tải các trang còn thiếu và bỏ tin trùng theo ID. Tab pixel có dấu **Mới** cho kênh có tin chưa xem. Mỗi tin tối đa 2.000 ký tự; mặc định mỗi người gửi tối đa 6 tin trong 10 giây và 30 tin trong 60 giây trên cả ba kênh. Quản trò có thể chặn/mở quyền gửi chat của từng người kèm lý do; người bị chặn vẫn đọc các kênh được phép. Chạy migration mới nhất trước khi dùng chức năng này. [Chi tiết, ảnh chụp và kiểm thử chat](docs/step-6/progress.md).
 
-Trong trận, quản trò có nút **Sửa/Xóa** ngay trên từng tin do mình gửi ở cả ba kênh. Tin đã sửa cập nhật qua WebSocket hoặc polling; tin đã xóa biến mất khỏi chat hiện tại. Sau trận, người từng tham gia xem được mọi kênh, kể cả tin đã xóa, và mở lịch sử từng tin để đối chiếu bản gốc với các bản sửa/xóa. Tab **Thông báo** có danh sách lịch sử sửa/xóa thông báo sau trận, gồm cả thông báo đã bị xóa. Mọi thao tác lưu sự kiện chỉ thêm mới; bản tổng kết toàn ván có lọc và xuất dữ liệu nằm ở bước 8.
+Trong trận, quản trò có nút **Sửa/Xóa** ngay trên từng tin do mình gửi ở cả ba kênh. Tin đã sửa cập nhật qua WebSocket hoặc polling; tin đã xóa biến mất khỏi chat hiện tại. Sau trận, người từng tham gia xem được mọi kênh, kể cả tin đã xóa, và mở lịch sử từng tin để đối chiếu bản gốc với các bản sửa/xóa. Tab **Thông báo** có danh sách lịch sử sửa/xóa thông báo sau trận, gồm cả thông báo đã bị xóa. Mọi thao tác lưu sự kiện chỉ thêm mới. Tab **Nhật ký sau trận** xếp toàn bộ sự kiện theo thứ tự, có lọc/tìm và tải JSON hoặc CSV. Người từng rời phòng cũng xem được sau khi trận kết thúc nếu đã đồng ý chính sách khi vào phòng. [Chi tiết bước 8](docs/step-8/progress.md).
 
 Yêu cầu role và thông báo dùng icon pixel SVG theo trạng thái hoặc loại công khai, luôn kèm nhãn chữ. Quản trò có icon ổ khóa trung tính ở danh sách trạng thái đang giữ kín; người chơi không thấy phần này trước khi công bố. [Ảnh hai quyền xem và chi tiết bước 7](docs/step-7/progress.md).
 

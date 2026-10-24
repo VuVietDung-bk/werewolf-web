@@ -4,6 +4,7 @@ discord.log
 WEB_PLAN.md
 CHECKLIST.md
 .local-demo.json
+backups/
 .venv/
 __pycache__/
 *.py[cod]

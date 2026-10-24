@@ -1,16 +1,19 @@
 """Room WebSocket notifications backed by committed database events.
 
-One polling task serves all sockets for a room in this API process. Every process
-reads the same committed journal, so sockets work without process-local publish
-calls. The outbox remains available for a later dedicated publisher.
+One polling task serves all sockets for a room in this API process. Redis hints
+wake the task quickly when available; timed PostgreSQL reads recover any hint
+lost to worker, Redis, network or process outages.
 """
 
 import asyncio
+import json
 import logging
+import os
 from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+import redis.asyncio as redis
 from sqlalchemy import select
 
 from app.auth import (COOKIE_NAME, POSTGAME_POLICY_VERSION, lookup_session,
@@ -18,6 +21,7 @@ from app.auth import (COOKIE_NAME, POSTGAME_POLICY_VERSION, lookup_session,
 from app.db.models import (ChatMessage, GameEvent, PrivateMessage, Room,
                            RoomMember, Session)
 from app.db.session import session_factory
+from app.outbox_worker import CHANNEL, redis_client
 
 router = APIRouter(tags=["live"])
 logger = logging.getLogger(__name__)
@@ -43,13 +47,18 @@ class RoomFeed:
         self.host_id = host_id
         self.connections: set[Connection] = set()
         self.task: asyncio.Task | None = None
+        self.wake = asyncio.Event()
 
     async def run(self) -> None:
         while self.connections:
             try:
                 count = await self.poll_once()
                 if count < EVENT_BATCH_SIZE:
-                    await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                    try:
+                        await asyncio.wait_for(self.wake.wait(), timeout=POLL_INTERVAL_SECONDS)
+                    except asyncio.TimeoutError:
+                        pass
+                    self.wake.clear()
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -59,14 +68,16 @@ class RoomFeed:
     async def poll_once(self) -> int:
         if not self.connections:
             return 0
-        cursor = min(connection.cursor for connection in self.connections)
+        # Snapshot recipients before the first await. A reconnect that joins
+        # during the DB query must get its own replay from its older cursor.
+        connections = list(self.connections)
+        cursor = min(connection.cursor for connection in connections)
         async with session_factory()() as db:
             events = (await db.scalars(select(GameEvent).where(
                 GameEvent.room_id == self.room_id, GameEvent.sequence > cursor
             ).order_by(GameEvent.sequence).limit(EVENT_BATCH_SIZE))).all()
             if not events:
                 return 0
-            connections = list(self.connections)
             session_ids = [connection.session_id for connection in connections]
             valid_sessions = set((await db.scalars(select(Session.id).where(
                 Session.id.in_(session_ids), Session.revoked_at.is_(None),
@@ -82,6 +93,8 @@ class RoomFeed:
                 select(PrivateMessage).where(PrivateMessage.event_id.in_(private_events)))).all()} if private_events else {}
 
         for connection in connections:
+            if connection not in self.connections:
+                continue
             if (connection.session_id not in valid_sessions or
                     (connection.user_id != self.host_id and connection.user_id not in active_members)):
                 self.connections.discard(connection)
@@ -90,7 +103,9 @@ class RoomFeed:
                 except (RuntimeError, OSError):
                     pass
         for event in events:
-            for connection in list(self.connections):
+            for connection in connections:
+                if connection not in self.connections:
+                    continue
                 if event.sequence <= connection.cursor:
                     continue
                 if not may_receive(event, connection.user_id, self.host_id,
@@ -141,6 +156,34 @@ class LiveHub:
     def __init__(self):
         self.feeds: dict[UUID, RoomFeed] = {}
         self.lock = asyncio.Lock()
+        self.listener: asyncio.Task | None = None
+
+    async def listen(self, url: str) -> None:
+        """Wake room feeds on Redis hints; reconnect after Redis restarts."""
+        while True:
+            client = redis_client(url)
+            try:
+                async with client.pubsub() as pubsub:
+                    await pubsub.subscribe(CHANNEL)
+                    while True:
+                        message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1)
+                        if message is None:
+                            continue
+                        try:
+                            data = json.loads(message["data"])
+                            room_id = UUID(data["room_id"])
+                        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                            continue
+                        feed = self.feeds.get(room_id)
+                        if feed is not None:
+                            feed.wake.set()
+            except asyncio.CancelledError:
+                raise
+            except (redis.RedisError, OSError, asyncio.TimeoutError):
+                logger.warning("Redis subscriber unavailable; room feeds continue polling PostgreSQL")
+                await asyncio.sleep(1)
+            finally:
+                await client.aclose()
 
     async def add(self, room_id: UUID, host_id: UUID, connection: Connection) -> None:
         async with self.lock:
@@ -151,6 +194,9 @@ class LiveHub:
             feed.connections.add(connection)
             if feed.task is None or feed.task.done():
                 feed.task = asyncio.create_task(feed.run())
+            url = os.getenv("REDIS_URL")
+            if url and (self.listener is None or self.listener.done()):
+                self.listener = asyncio.create_task(self.listen(url))
 
     async def remove(self, room_id: UUID, connection: Connection) -> None:
         async with self.lock:
@@ -166,6 +212,13 @@ class LiveHub:
                         await feed.task
                     except asyncio.CancelledError:
                         pass
+            if not self.feeds and self.listener is not None:
+                self.listener.cancel()
+                try:
+                    await self.listener
+                except asyncio.CancelledError:
+                    pass
+                self.listener = None
 
 
 hub = LiveHub()

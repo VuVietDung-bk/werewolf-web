@@ -1,22 +1,24 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, jsonBody, type Identity, type Room, type RoomSummary } from './api'
 import PixelAsset from './components/PixelAsset'
 import StatusGlyph from './components/StatusGlyph'
-import RolePanel from './components/RolePanel'
-import GameControls from './components/GameControls'
-import VotePanel from './components/VotePanel'
-import HostPlayerBoard from './components/HostPlayerBoard'
-import DeathNotices from './components/DeathNotices'
-import PrivateInbox from './components/PrivateInbox'
-import ChatPanel from './components/ChatPanel'
-import RoleRequestsPanel from './components/RoleRequestsPanel'
 import DemoSwitcher from './components/DemoSwitcher'
 import { useRequestIds } from './useRequestIds'
 import { useConfirmation } from './useConfirmation'
 
+const RolePanel = lazy(() => import('./components/RolePanel'))
+const GameControls = lazy(() => import('./components/GameControls'))
+const VotePanel = lazy(() => import('./components/VotePanel'))
+const HostPlayerBoard = lazy(() => import('./components/HostPlayerBoard'))
+const DeathNotices = lazy(() => import('./components/DeathNotices'))
+const PrivateInbox = lazy(() => import('./components/PrivateInbox'))
+const ChatPanel = lazy(() => import('./components/ChatPanel'))
+const RoleRequestsPanel = lazy(() => import('./components/RoleRequestsPanel'))
+const TranscriptPanel = lazy(() => import('./components/TranscriptPanel'))
+
 type ApiStatus = 'loading' | 'online' | 'offline'
-type View = 'home' | 'lobby' | 'catalog' | 'manage' | 'distribution' | 'assignment' | 'game' | 'chat' | 'requests' | 'vote' | 'control' | 'dead' | 'private'
-const VIEWS: View[] = ['home', 'lobby', 'catalog', 'manage', 'distribution', 'assignment', 'game', 'chat', 'requests', 'vote', 'control', 'dead', 'private']
+type View = 'home' | 'lobby' | 'catalog' | 'manage' | 'distribution' | 'assignment' | 'game' | 'chat' | 'requests' | 'vote' | 'control' | 'dead' | 'private' | 'transcript'
+const VIEWS: View[] = ['home', 'lobby', 'catalog', 'manage', 'distribution', 'assignment', 'game', 'chat', 'requests', 'vote', 'control', 'dead', 'private', 'transcript']
 const ROOM_KEY = 'ma-soi-active-room'
 const showAssetDemo = new URLSearchParams(window.location.search).has('asset-demo')
 const readView = (): View => {
@@ -36,6 +38,7 @@ const roomViews = (room: Room): View[] => [
   ...(['playing', 'finished'].includes(room.status) ? ['vote'] as View[] : []),
   ...(['playing', 'finished'].includes(room.status) && !room.is_host ? ['private'] as View[] : []),
   ...(['playing', 'finished'].includes(room.status) && room.is_host ? ['control'] as View[] : []),
+  ...(room.status === 'finished' ? ['transcript'] as View[] : []),
 ]
 const roomDefaultView = (room: Room): View => ['playing', 'finished'].includes(room.status) ? 'game'
   : room.status === 'assigned' ? 'assignment' : room.status === 'drafting' ? 'distribution' : 'lobby'
@@ -271,7 +274,7 @@ export default function App() {
     { view: 'home', label: 'Trang chủ' },
     ...(room ? roomViews(room).map((item) => ({ view: item, label: {
       lobby: 'Sảnh chờ', catalog: 'Danh mục role', manage: 'Thiết lập role', distribution: room.status === 'drafting' ? 'Chọn role' : 'Phát role',
-      assignment: room.is_host ? 'Phân role' : 'Role của tôi', game: 'Trận đấu', chat: 'Chat', requests: 'Yêu cầu role', vote: 'Vote', control: 'Bàn quản trò', dead: 'Thông báo', private: 'Tin riêng', home: 'Trang chủ',
+      assignment: room.is_host ? 'Phân role' : 'Role của tôi', game: 'Trận đấu', chat: 'Chat', requests: 'Yêu cầu role', vote: 'Vote', control: 'Bàn quản trò', dead: 'Thông báo', private: 'Tin riêng', transcript: 'Nhật ký sau trận', home: 'Trang chủ',
     }[item] })) : []),
   ]
 
@@ -335,7 +338,7 @@ export default function App() {
             onChange={(event) => setJoinCode(event.target.value.toUpperCase())} placeholder="12 ký tự" />
           <label className="consent"><input type="checkbox" checked={consented}
             onChange={(event) => setConsented(event.target.checked)} />
-            <span>Tôi đồng ý rằng sau trận, người từng tham gia phòng được xem toàn bộ chat đội, chat với quản trò, yêu cầu role, ghi chú và quyết định của quản trò.</span>
+            <span>Tôi đồng ý rằng sau trận, người từng tham gia phòng được xem toàn bộ chat đội, chat với quản trò, yêu cầu role, ghi chú và quyết định của quản trò. Phòng và nhật ký trên web đủ hạn xóa sau 90 ngày; bản sao DB được giữ tối đa 7 ngày từ lúc sao lưu. Hãy xuất nhật ký trước hạn.</span>
           </label>
           <button disabled={busy || !consented || joinCode.trim().length < 8}>Vào sảnh</button>
         </form>
@@ -357,6 +360,7 @@ export default function App() {
           <h1>{room.name}</h1><p>Quản trò: <strong>{room.host_name}</strong> · {room.members.length}/{room.seat_limit} ghế</p></div>
         <button type="button" className="button-secondary" onClick={refreshRoom} disabled={busy}>Cập nhật phòng</button>
       </header>
+      <Suspense fallback={<p className="screen-loading" role="status">Đang tải màn hình…</p>}>
       {view === 'lobby' && <section className="lobby" aria-labelledby="lobby-title">
         <h2 id="lobby-title">Sảnh chờ</h2>
         <div className="invite-line"><span>Mã mời</span><strong>{room.code}</strong>
@@ -398,7 +402,7 @@ export default function App() {
           <span className="eyebrow">{room.status === 'finished' ? 'KẾT QUẢ TRẬN' : 'TRẬN ĐẤU'}</span>
           <h2 id="game-title">{room.phase_type === 'night' ? 'Đêm' : 'Ngày'} {room.round_number}</h2>
         </div>
-        {room.status === 'finished' ? <div className="game-result"><strong>{room.result_label}</strong><p>{room.result_reason}</p></div> :
+        {room.status === 'finished' ? <div className="game-result"><strong>{room.result_label}</strong><p>{room.result_reason}</p><button type="button" onClick={() => navigate('transcript')}>Xem nhật ký sau trận</button></div> :
           room.is_paused ? <p className="game-paused" role="status">Trận đang tạm dừng. Vui lòng chờ quản trò tiếp tục.</p> :
             <p>Ván đang diễn ra. Dùng thanh điều hướng để xem role của bạn và danh mục role.</p>}
         <GameControls room={room} onRoomChanged={async () => { await loadRooms(room.id) }} />
@@ -416,13 +420,15 @@ export default function App() {
       {view === 'private' && !room.is_host && <PrivateInbox room={room} />}
       {view === 'control' && room.is_host && <HostPlayerBoard key={room.id} room={room}
         onRoomChanged={async () => { await loadRooms(room.id) }} />}
+      {view === 'transcript' && room.status === 'finished' && <TranscriptPanel room={room} />}
+      </Suspense>
     </>}
 
     {message && <p className="form-message global-message" role="alert">{message}</p>}
     {showAssetDemo && <details className="asset-demo" open><summary>Thử asset và ảnh dự phòng</summary>
       <div className="asset-grid">
-        <article className="asset-card"><PixelAsset src="/assets/v1/seer-concept.png" alt="Chân dung Tiên Tri" baseWidth={64} baseHeight={64} scale={3} />
-          <h3>PNG · bản concept</h3><p>Khung 64 × 64, nhân 3 lần.</p></article>
+        <article className="asset-card"><PixelAsset src="/assets/v1/seer-concept.webp" alt="Chân dung Tiên Tri" baseWidth={64} baseHeight={64} scale={3} />
+          <h3>WebP · bản concept</h3><p>Khung 64 × 64, nhân 3 lần.</p></article>
         <article className="asset-card"><PixelAsset src="/assets/v1/missing-icon.webp" alt="Icon role mặc định" baseWidth={64} baseHeight={64} scale={3} />
           <h3>Ảnh thiếu</h3><p>Nhãn vẫn hiện khi file lỗi hoặc vắng mặt.</p></article>
       </div>

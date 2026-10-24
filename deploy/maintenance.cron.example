@@ -1,0 +1,10 @@
+# Install under a dedicated operations account on a host using UTC.
+# Configure PGSERVICE=ma_soi_prod with restricted libpq credentials outside this repo.
+# Replace both /srv and /var/lib paths before installation. Monitor command failures.
+# At 01:00 prune local backups before their seventh day ends; at 02:00 back up,
+# then delete finished rooms older than 90 days only if that backup succeeds.
+SHELL=/bin/bash
+PG_CLIENT=host
+PGSERVICE=ma_soi_prod
+0 1 * * * cd /srv/ma-soi-bot && BACKUP_DIR=/var/lib/ma-soi-backups RETENTION_POLICY_APPROVED=1 bash scripts/postgres_maintenance.sh backup-prune 7
+0 2 * * * cd /srv/ma-soi-bot && BACKUP_DIR=/var/lib/ma-soi-backups RETENTION_POLICY_APPROVED=1 bash scripts/postgres_maintenance.sh daily

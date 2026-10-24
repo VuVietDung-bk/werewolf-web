@@ -1,0 +1,41 @@
+rule_files:
+  - alerts.yml
+evaluation_interval: 15s
+tests:
+  - interval: 15s
+    input_series:
+      - series: 'ma_soi_postgres_up{instance="api:8000"}'
+        values: '0+0x20'
+      - series: 'ma_soi_outbox_oldest_age_seconds{instance="api:8000"}'
+        values: '45+0x20'
+      - series: 'ma_soi_outbox_pending{instance="api:8000"}'
+        values: '3+0x20'
+      - series: 'ma_soi_redis_up{instance="api:8000"}'
+        values: '1+0x20'
+      - series: 'ma_soi_outbox_worker_heartbeat_age_seconds{instance="api:8000"}'
+        values: '40+0x20'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: MaSoiPostgresDown
+        exp_alerts:
+          - exp_labels:
+              instance: api:8000
+              severity: critical
+            exp_annotations:
+              summary: API cannot query PostgreSQL
+      - eval_time: 3m
+        alertname: MaSoiOutboxDelayed
+        exp_alerts:
+          - exp_labels:
+              instance: api:8000
+              severity: warning
+            exp_annotations:
+              summary: Oldest unpublished event has waited over 30 seconds
+      - eval_time: 3m
+        alertname: MaSoiWorkerStale
+        exp_alerts:
+          - exp_labels:
+              instance: api:8000
+              severity: warning
+            exp_annotations:
+              summary: Outbox worker has no fresh heartbeat

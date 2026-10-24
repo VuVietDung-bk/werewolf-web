@@ -16,4 +16,4 @@ Ngày kiểm tra: 2026-10-19. Môi trường local: PostgreSQL 16 trong Docker, 
 - [Trang thử asset desktop](screenshots/asset-demo-desktop.png) và [điện thoại](screenshots/asset-demo-mobile.png): PNG có nền trong suốt hiển thị; ảnh WebP vắng mặt chuyển sang khung chữ dự phòng.
 - [Điện thoại khi thiếu nền sảnh](screenshots/lobby-mobile-no-art.png): nội dung và thao tác vẫn rõ. Thử trì hoãn ảnh nền 1,5 giây cũng không chặn giao diện sảnh.
 
-Nền sảnh hiện là PNG khoảng 2,2 MiB. Tối ưu dung lượng và cache thuộc bước 9.6; bản này phù hợp làm mốc thiết kế, chưa là kết quả thử tải 500 người.
+Ở thời điểm kiểm tra bước 3, nền sảnh là PNG khoảng 2,2 MiB. Bước 9.6 đã chuyển sang WebP 351 KiB; xem [báo cáo dung lượng và mạng chậm](../step-9/assets-accessibility.md). Ảnh tại đây là mốc thiết kế, không phải kết quả thử tải 500 người.

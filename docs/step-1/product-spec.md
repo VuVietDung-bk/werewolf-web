@@ -127,7 +127,7 @@ Ký hiệu: `R` đọc, `W` gửi/tạo, `—` không truy cập. “Người ch
 
 Văn bản ở sảnh, ngay trước nút tham gia:
 
-> Sau khi trận kết thúc, tất cả người đã tham gia phòng có thể xem toàn bộ chat trong trò chơi, gồm chat đội và chat riêng với quản trò, cùng yêu cầu role và quyết định của quản trò. Hãy chỉ gửi nội dung bạn chấp nhận công bố sau trận.
+> Sau khi trận kết thúc, tất cả người đã tham gia phòng có thể xem toàn bộ chat trong trò chơi, gồm chat đội và chat riêng với quản trò, cùng yêu cầu role và quyết định của quản trò. Hãy chỉ gửi nội dung bạn chấp nhận công bố sau trận. Phòng và nhật ký trên web đủ hạn xóa sau 90 ngày; bản sao DB được giữ tối đa 7 ngày từ lúc sao lưu. Hãy xuất nhật ký trước hạn.
 
 Nút xác nhận: **“Tôi đã hiểu và tham gia phòng”**. Ghi lại phiên bản chính sách và thời điểm xác nhận. Nếu người chơi chưa xác nhận, không cấp ghế. Trước khi kết thúc, mỗi người chỉ thấy nội dung theo ma trận quyền. Trang tổng kết giải thích rằng log ghi nhận hành động trong hệ thống, không tự chứng minh quyết định đúng luật hoặc những việc diễn ra ngoài web.
 
