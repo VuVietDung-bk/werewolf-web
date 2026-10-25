@@ -96,6 +96,7 @@ def test_role_changes_and_private_messages() -> None:
                 assert (await post(host, message_url, message_body)).json()["repeated"]
                 assert (await post(host, message_url, {**message_body, "text": "Khác"})).status_code == 409
                 assert (await target.get(inbox)).json()[0]["text"] == message_body["text"]
+                assert (await target.get(inbox)).json()[0]["sequence"] > 0
                 assert "reason" not in (await target.get(inbox)).json()[0]
                 assert (await host.get(message_url)).json() == (await target.get(inbox)).json()
                 assert (await other.get(inbox)).json() == []

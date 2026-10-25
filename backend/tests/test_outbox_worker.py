@@ -147,7 +147,9 @@ def test_outbox_retries_and_websocket_reconciles_without_worker(monkeypatch) -> 
                         return await publish_batch(db, slow, UUID(room_id))
 
                 results = await asyncio.gather(drain(), drain())
-                assert sorted(result[0] for result in results) == [0, 3]
+                assert sum(published for published, _ in results) == 3
+                assert all(not failed for _, failed in results)
+                assert len(slow.messages) == 3
                 assert len({json.loads(value)["sequence"] for _, value in slow.messages}) == 3
             finally:
                 if room_id:

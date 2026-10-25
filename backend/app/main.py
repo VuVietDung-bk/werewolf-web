@@ -101,7 +101,15 @@ async def check_write_origin(request: Request, call_next):
             route_path = getattr(route, "path", "unmatched")
             http_metrics.record(request.method, route_path,
                                 status, time.perf_counter() - start)
-            access_logger.info("HTTP %s %s %d", request.method, route_path, status)
+            # Metrics count every request. Successful requests are too frequent
+            # to write synchronously at INFO under game load; keep the same
+            # redacted template at DEBUG and log failures at higher levels.
+            if status >= 500:
+                access_logger.error("HTTP %s %s %d", request.method, route_path, status)
+            elif status >= 400:
+                access_logger.warning("HTTP %s %s %d", request.method, route_path, status)
+            else:
+                access_logger.debug("HTTP %s %s %d", request.method, route_path, status)
 
 
 @app.get("/internal/metrics", include_in_schema=False)

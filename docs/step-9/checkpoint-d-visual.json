@@ -1,0 +1,103 @@
+{
+  "room_id": "b4241019-6cb0-4984-8a5e-d3a0ae84b639",
+  "screens": {
+    "host_desktop": {
+      "heading": "Làng thử giao diện D5",
+      "missingAlt": 0,
+      "loadedImages": [
+        {
+          "path": "/assets/v1/role-wolf-v1-128.png",
+          "loaded": true
+        },
+        {
+          "path": "/assets/v1/role-seer-v1-128.png",
+          "loaded": true
+        }
+      ],
+      "assetRequests": [
+        "/assets/v1/village-day-v1.webp",
+        "/assets/v1/role-wolf-v1-128.png",
+        "/assets/v1/role-seer-v1-128.png"
+      ],
+      "horizontalOverflow": false
+    },
+    "player_mobile": {
+      "heading": "Làng thử giao diện D5",
+      "missingAlt": 0,
+      "loadedImages": [],
+      "assetRequests": [
+        "/assets/v1/village-day-v1.webp"
+      ],
+      "horizontalOverflow": false
+    },
+    "catalog_mobile": {
+      "heading": "Làng thử giao diện D5",
+      "missingAlt": 0,
+      "loadedImages": [
+        {
+          "path": "/assets/v1/role-wolf-v1-128.png",
+          "loaded": true
+        },
+        {
+          "path": "/assets/v1/role-seer-v1-128.png",
+          "loaded": true
+        }
+      ],
+      "assetRequests": [
+        "/assets/v1/village-day-v1.webp",
+        "/assets/v1/role-wolf-v1-128.png",
+        "/assets/v1/role-seer-v1-128.png"
+      ],
+      "horizontalOverflow": false
+    },
+    "notice_mobile": {
+      "heading": "Làng thử giao diện D5",
+      "missingAlt": 0,
+      "loadedImages": [],
+      "assetRequests": [
+        "/assets/v1/village-day-v1.webp",
+        "/assets/v1/role-wolf-v1-128.png",
+        "/assets/v1/role-seer-v1-128.png"
+      ],
+      "horizontalOverflow": false
+    },
+    "missing_art": {
+      "heading": "Làng thử giao diện D5",
+      "missingAlt": 0,
+      "loadedImages": [],
+      "assetRequests": [
+        "/assets/v1/village-day-v1.webp",
+        "/assets/v1/village-day-v1.webp",
+        "/assets/v1/village-day-v1.webp"
+      ],
+      "horizontalOverflow": false
+    },
+    "missing_art_catalog": {
+      "heading": "Làng thử giao diện D5",
+      "missingAlt": 0,
+      "loadedImages": [],
+      "assetRequests": [
+        "/assets/v1/village-day-v1.webp",
+        "/assets/v1/village-day-v1.webp",
+        "/assets/v1/village-day-v1.webp",
+        "/assets/v1/village-day-v1.webp",
+        "/assets/v1/role-wolf-v1-128.png",
+        "/assets/v1/role-seer-v1-128.png",
+        "/assets/v1/role-generic-v1-128.png"
+      ],
+      "horizontalOverflow": false
+    },
+    "slow_game": {
+      "heading": "Làng thử giao diện D5",
+      "missingAlt": 0,
+      "loadedImages": [],
+      "assetRequests": [
+        "/assets/v1/village-day-v1.webp"
+      ],
+      "horizontalOverflow": false
+    }
+  },
+  "slow_game_heading_ms": 2066,
+  "slow_game_art_ms": 3960,
+  "page_errors": []
+}

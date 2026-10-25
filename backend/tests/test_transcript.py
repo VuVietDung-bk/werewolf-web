@@ -98,6 +98,9 @@ def test_postgame_transcript_permissions_timeline_filters_and_exports() -> None:
                 ))).status_code == 200
                 assert (await post(passive, f"{base}/chat/messages", command(
                     channel="common", text="Họp làng ngày 0"))).status_code == 200
+                assert (await post(host, f"{base}/chat/messages", command(
+                    channel="host", participant_user_id=active_id,
+                    text="Quản trò mở kênh hội thoại"))).status_code == 200
                 private = await post(host, f"{base}/chat/messages", command(
                     channel="host", participant_user_id=active_id, text="Tin riêng của quản trò"))
                 assert private.status_code == 200
@@ -126,10 +129,18 @@ def test_postgame_transcript_permissions_timeline_filters_and_exports() -> None:
                     decision="hold", reason="Chờ xử lý role"))).status_code == 200
                 assert (await post(host, f"{base}/game/players/{passive_id}/publication-disposition", command(
                     decision="skip", reason="Role che thông báo"))).status_code == 200
+                public_room = (await active.get(base)).json()
+                assert next(item for item in public_room["members"] if item["user_id"] == passive_id)["public_is_alive"]
+                assert (await active.get(f"{base}/game/death-notices")).json() == []
+                assert (await active.get(transcript)).status_code == 409
                 assert (await post(host, f"{base}/game/advance", {
                     "expected_phase_type": "day", "expected_round_number": 0})).status_code == 200
                 assert (await post(active, f"{base}/chat/messages", command(
                     channel="team", text="Tin đội trong đêm"))).status_code == 200
+                assert (await post(host, f"{base}/game/players/{active_id}/actions", command(
+                    action="change_faction", text="Trung lập", reason="Quản trò xét diễn biến"))).status_code == 200
+                assert (await post(host, f"{base}/game/players/{passive_id}/actions", command(
+                    action="revive", reason="Quản trò quyết định hồi sinh"))).status_code == 200
                 finished = await post(host, f"{base}/game/finish", command(
                     result_label="Bầy sói thắng", result_reason="Quản trò chốt thủ công"))
                 assert finished.status_code == 200
@@ -162,8 +173,14 @@ def test_postgame_transcript_permissions_timeline_filters_and_exports() -> None:
                 assert {"roles.draft_started", "roles.draft_offered", "roles.draft_chosen", "chat.sent", "chat.revised",
                         "role.request_submitted", "role.request_reviewed", "vote.ballot_submitted",
                         "vote.decided", "player.kill", "player.publication_disposition_decided",
+                        "player.change_faction", "player.revive",
                         "event.custom_announcement", "content.revision_decided", "game.finished",
                         "player.note", "content.note_revision_decided"} <= kinds
+                first_sequence = {kind: next(item["sequence"] for item in events if item["kind"] == kind)
+                                  for kind in ("player.kill", "player.publication_disposition_decided",
+                                               "chat.sent", "player.change_faction", "player.revive", "game.finished")}
+                assert first_sequence["player.kill"] < first_sequence["player.publication_disposition_decided"]
+                assert first_sequence["player.change_faction"] < first_sequence["player.revive"] < first_sequence["game.finished"]
                 secret_chat = next(item for item in events if item["id"] == private.json()["event_id"])
                 assert secret_chat["payload"]["request"]["text"] == "Tin riêng của quản trò"
                 assert secret_chat["phase_type"] == "day" and secret_chat["round_number"] == 0

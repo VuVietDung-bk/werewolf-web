@@ -32,7 +32,8 @@ def test_origin_allowlist_rejects_missing_null_and_lookalike(monkeypatch) -> Non
 
 def test_access_log_omits_query_and_headers(monkeypatch) -> None:
     entries: list[tuple] = []
-    monkeypatch.setattr(main.access_logger, "info", lambda *args: entries.append(args))
+    monkeypatch.setattr(main.access_logger, "debug", lambda *args: entries.append(("debug", *args)))
+    monkeypatch.setattr(main.access_logger, "warning", lambda *args: entries.append(("warning", *args)))
     assert logging.getLogger("uvicorn.access").disabled
 
     async def run() -> None:
@@ -47,8 +48,8 @@ def test_access_log_omits_query_and_headers(monkeypatch) -> None:
             await client.get("/api/unknown/private-chat-secret?q=private-chat-secret")
 
     asyncio.run(run())
-    assert entries == [("HTTP %s %s %d", "GET", "/api/health/live", 200),
-                       ("HTTP %s %s %d", "GET", "unmatched", 404)]
+    assert entries == [("debug", "HTTP %s %s %d", "GET", "/api/health/live", 200),
+                       ("warning", "HTTP %s %s %d", "GET", "unmatched", 404)]
     assert "private-chat-secret" not in repr(entries)
     assert "secret-cookie" not in repr(entries)
 

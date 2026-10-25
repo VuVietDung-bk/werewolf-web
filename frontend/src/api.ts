@@ -191,6 +191,7 @@ export type DeathNotice = {
 export type PrivateMessage = {
   id: string
   event_id: string
+  sequence: number
   sender_user_id: string
   text: string
   created_at: string

@@ -11,18 +11,21 @@ const GameControls = lazy(() => import('./components/GameControls'))
 const VotePanel = lazy(() => import('./components/VotePanel'))
 const HostPlayerBoard = lazy(() => import('./components/HostPlayerBoard'))
 const DeathNotices = lazy(() => import('./components/DeathNotices'))
-const PrivateInbox = lazy(() => import('./components/PrivateInbox'))
 const ChatPanel = lazy(() => import('./components/ChatPanel'))
 const RoleRequestsPanel = lazy(() => import('./components/RoleRequestsPanel'))
 const TranscriptPanel = lazy(() => import('./components/TranscriptPanel'))
 
 type ApiStatus = 'loading' | 'online' | 'offline'
-type View = 'home' | 'lobby' | 'catalog' | 'manage' | 'distribution' | 'assignment' | 'game' | 'chat' | 'requests' | 'vote' | 'control' | 'dead' | 'private' | 'transcript'
-const VIEWS: View[] = ['home', 'lobby', 'catalog', 'manage', 'distribution', 'assignment', 'game', 'chat', 'requests', 'vote', 'control', 'dead', 'private', 'transcript']
+type View = 'home' | 'lobby' | 'catalog' | 'manage' | 'distribution' | 'assignment' | 'game' | 'chat' | 'requests' | 'vote' | 'control' | 'dead' | 'transcript'
+const VIEWS: View[] = ['home', 'lobby', 'catalog', 'manage', 'distribution', 'assignment', 'game', 'chat', 'requests', 'vote', 'control', 'dead', 'transcript']
 const ROOM_KEY = 'ma-soi-active-room'
 const showAssetDemo = new URLSearchParams(window.location.search).has('asset-demo')
 const readView = (): View => {
   const value = window.location.hash.slice(1)
+  if (value === 'private') {
+    window.history.replaceState(null, '', '#chat')
+    return 'chat'
+  }
   return VIEWS.includes(value as View) ? value as View : 'home'
 }
 const roomViews = (room: Room): View[] => [
@@ -36,7 +39,6 @@ const roomViews = (room: Room): View[] => [
   ...(['assigned', 'playing', 'finished'].includes(room.status) ? ['assignment'] as View[] : []),
   ...(['playing', 'finished'].includes(room.status) ? ['dead'] as View[] : []),
   ...(['playing', 'finished'].includes(room.status) ? ['vote'] as View[] : []),
-  ...(['playing', 'finished'].includes(room.status) && !room.is_host ? ['private'] as View[] : []),
   ...(['playing', 'finished'].includes(room.status) && room.is_host ? ['control'] as View[] : []),
   ...(room.status === 'finished' ? ['transcript'] as View[] : []),
 ]
@@ -274,7 +276,7 @@ export default function App() {
     { view: 'home', label: 'Trang chủ' },
     ...(room ? roomViews(room).map((item) => ({ view: item, label: {
       lobby: 'Sảnh chờ', catalog: 'Danh mục role', manage: 'Thiết lập role', distribution: room.status === 'drafting' ? 'Chọn role' : 'Phát role',
-      assignment: room.is_host ? 'Phân role' : 'Role của tôi', game: 'Trận đấu', chat: 'Chat', requests: 'Yêu cầu role', vote: 'Vote', control: 'Bàn quản trò', dead: 'Thông báo', private: 'Tin riêng', transcript: 'Nhật ký sau trận', home: 'Trang chủ',
+      assignment: room.is_host ? 'Phân role' : 'Role của tôi', game: 'Trận đấu', chat: 'Chat', requests: 'Yêu cầu role', vote: 'Vote', control: 'Bàn quản trò', dead: 'Thông báo', transcript: 'Nhật ký sau trận', home: 'Trang chủ',
     }[item] })) : []),
   ]
 
@@ -417,7 +419,6 @@ export default function App() {
       {view === 'requests' && <RoleRequestsPanel key={room.id} room={room} />}
       {view === 'dead' && <DeathNotices room={room} onRoomChanged={async () => { await loadRooms(room.id) }}
         onOpenBoard={() => navigate('control')} />}
-      {view === 'private' && !room.is_host && <PrivateInbox room={room} />}
       {view === 'control' && room.is_host && <HostPlayerBoard key={room.id} room={room}
         onRoomChanged={async () => { await loadRooms(room.id) }} />}
       {view === 'transcript' && room.status === 'finished' && <TranscriptPanel room={room} />}

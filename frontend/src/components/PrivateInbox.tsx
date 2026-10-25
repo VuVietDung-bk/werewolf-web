@@ -2,35 +2,6 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, jsonBody, type PrivateMessage, type Room } from '../api'
 import { useRequestIds } from '../useRequestIds'
 
-function MessageList({ messages }: { messages: PrivateMessage[] }) {
-  return messages.length ? <ol className="private-message-list">{messages.map((message) =>
-    <li key={message.id}><small><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString('vi-VN')}</time>
-      {message.edited_at && ' · Đã sửa'}</small>
-      <p>{message.text}</p></li>)}</ol> : <p>Chưa có tin riêng từ quản trò.</p>
-}
-
-export default function PrivateInbox({ room }: { room: Room }) {
-  const [messages, setMessages] = useState<PrivateMessage[]>([])
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    let active = true
-    const load = () => { void api<PrivateMessage[]>(`/api/rooms/${room.id}/game/private-messages`)
-      .then((items) => { if (active) { setMessages(items); setError('') } })
-      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Không tải được tin riêng.') }) }
-    load()
-    const timer = window.setInterval(load, 8000)
-    return () => { active = false; window.clearInterval(timer) }
-  }, [room.id])
-
-  return <section className="private-inbox" aria-labelledby="private-inbox-title">
-    <span className="eyebrow">CHỈ BẠN VÀ QUẢN TRÒ</span><h2 id="private-inbox-title">Tin riêng từ quản trò</h2>
-    <p>Tin trong ván chỉ bạn và quản trò xem được; sau trận, toàn bộ trao đổi sẽ nằm trong nhật ký của phòng.</p>
-    {error && <p className="form-message" role="alert">{error}</p>}
-    <MessageList messages={messages} />
-  </section>
-}
-
 export function HostPrivateMessages({ room, playerId }: { room: Room; playerId: string }) {
   const [messages, setMessages] = useState<PrivateMessage[]>([])
   const [text, setText] = useState('')

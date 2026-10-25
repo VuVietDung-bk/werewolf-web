@@ -1,0 +1,32 @@
+{
+  "room_id": "d0aeee81-19ee-4659-8e47-7eea2e6f0f26",
+  "host_id": "271e8ccd-0dc6-4d41-a561-e9af26beb55d",
+  "player_id": "6959b157-cecd-4e45-b124-12097799a7c7",
+  "second_player_id": "00dabdd9-3772-4a24-97a8-dc11c4488bfd",
+  "before": {
+    "status": "playing",
+    "version": 7,
+    "members": 2,
+    "events": 7,
+    "outbox_pending": 0
+  },
+  "during_outage": {
+    "status": "playing",
+    "version": 9,
+    "members": 2,
+    "events": 9,
+    "outbox_pending": 1
+  },
+  "after": {
+    "status": "playing",
+    "version": 10,
+    "members": 2,
+    "events": 10,
+    "outbox_pending": 0
+  },
+  "replayed_sequences": [
+    9,
+    10
+  ],
+  "redis_offline_delivery_sequence": 9
+}

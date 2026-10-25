@@ -1,0 +1,10 @@
+{
+  "room_id": "785eb77e-fc60-49cf-aabd-c689f0fa4796",
+  "team_members": 2,
+  "villager_cannot_reply": true,
+  "private_message_in_host_timeline": true,
+  "team_message_private": true,
+  "old_private_hash_redirects_to_chat": true,
+  "new_private_unread_visible": true,
+  "page_errors": []
+}

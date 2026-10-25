@@ -36,6 +36,7 @@ class PrivateMessageInput(BaseModel):
 class PrivateMessageOutput(BaseModel):
     id: UUID
     event_id: UUID
+    sequence: int
     sender_user_id: UUID
     text: str
     created_at: datetime
@@ -51,17 +52,20 @@ async def messages_for_player(db: AsyncSession, room_id: UUID,
                               player_id: UUID) -> list[PrivateMessageOutput]:
     if await db.get(PlayerState, (room_id, player_id)) is None:
         raise HTTPException(status_code=404, detail="Người chơi không thuộc trận")
-    rows = (await db.execute(select(PrivateMessage, ContentRevision).outerjoin(
+    rows = (await db.execute(select(PrivateMessage, GameEvent, ContentRevision).join(
+        GameEvent, GameEvent.id == PrivateMessage.event_id
+    ).outerjoin(
         ContentRevision, ContentRevision.source_event_id == PrivateMessage.event_id
     ).where(PrivateMessage.room_id == room_id, PrivateMessage.user_id == player_id,
             ContentRevision.deleted_at.is_(None))
-        .order_by(PrivateMessage.created_at, PrivateMessage.id))).all()
+        .order_by(GameEvent.sequence))).all()
     return [PrivateMessageOutput(id=message.id, event_id=message.event_id,
+                                 sequence=event.sequence,
                                  sender_user_id=message.sender_user_id,
                                  text=revision.current_text if revision and revision.edited_at
                                  else message.text, created_at=message.created_at,
                                  edited_at=revision.edited_at if revision else None)
-            for message, revision in rows]
+            for message, event, revision in rows]
 
 
 @router.get("/private-messages", response_model=list[PrivateMessageOutput])

@@ -1,0 +1,90 @@
+{
+  "alembic_version": {
+    "rows": 1,
+    "sha256": "0aa2fe2605c6b6c813c15885277dc9f2530c8d87147bb4fba254a9493c9eb5c9"
+  },
+  "chat_messages": {
+    "rows": 3,
+    "sha256": "8ec26f267369b1420af702a74743a35aa65cbec872385e88dcffb482e50d2f62"
+  },
+  "chat_mutes": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "content_revisions": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "draft_turns": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "game_events": {
+    "rows": 14,
+    "sha256": "8e865b18ab9e1878d519082174d5508c1aeed51d441b72e3ca0be69d6b3f0a3a"
+  },
+  "outbox": {
+    "rows": 14,
+    "sha256": "e3563c2dfe81b3b35d439d5348fa25095cc0cde395d3c37469e46b474af64848"
+  },
+  "player_notes": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "player_states": {
+    "rows": 2,
+    "sha256": "4d55ea877104cb5c8ab6ca8c3d725b763ad5a4325e33fa6608edc931078c772e"
+  },
+  "private_messages": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "role_assignments": {
+    "rows": 2,
+    "sha256": "1dd5ebb30e4f9e71ff33e28410f609ab2d2b7ca5c7d10c821f9b0940e35b45b7"
+  },
+  "role_definitions": {
+    "rows": 2,
+    "sha256": "e48016ad4ae11d547a41509916dd9b0c66637d9397f1ec9704b58f929b4d701c"
+  },
+  "role_icons": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "role_requests": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "role_sets": {
+    "rows": 2,
+    "sha256": "faa1731e106da24fc43abad9b83c2668b79baf7d9bb9c2916f9578ee78995726"
+  },
+  "role_snapshots": {
+    "rows": 1,
+    "sha256": "4db5722f21b4c93a6fb5b2447e4afdba44e42f136378bd82d0070137ca0e4cf6"
+  },
+  "room_members": {
+    "rows": 3,
+    "sha256": "045d4f8f4bee268f5d771a052cc7b9a041f67184fbce3403c7f3f544cbe505f7"
+  },
+  "rooms": {
+    "rows": 2,
+    "sha256": "4eb5febfc79dac6a564ad35117f9742183da288fd9ed24f99c9a9c9b95ab61b5"
+  },
+  "sessions": {
+    "rows": 5,
+    "sha256": "a4163df6196d12ab32a09e84e698c11e09942d5f11875e7ffb71092280e5bd04"
+  },
+  "users": {
+    "rows": 5,
+    "sha256": "01d8145f0fc65656c89715d1caabfe062ebec9c53241dd5466de3b039eabbcb4"
+  },
+  "vote_ballots": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vote_rounds": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

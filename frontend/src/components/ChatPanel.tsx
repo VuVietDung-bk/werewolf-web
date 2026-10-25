@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, jsonBody, type ChatChannel, type ChatContext, type ChatMessage, type ChatPage, type ChatPolicy, type Room } from '../api'
+import { api, jsonBody, type ChatChannel, type ChatContext, type ChatMessage, type ChatPage, type ChatPolicy, type PrivateMessage, type Room } from '../api'
 import { useRequestIds } from '../useRequestIds'
 import { useConfirmation } from '../useConfirmation'
 import ChatGlyph from './ChatGlyph'
@@ -21,6 +21,8 @@ function mergeMessages(previous: ChatMessage[], next: ChatMessage[]): ChatMessag
 }
 
 type ChatActivity = ChatContext['activity'][number]
+type TimelineItem = { kind: 'chat'; message: ChatMessage; sequence: number }
+  | { kind: 'private'; message: PrivateMessage; sequence: number }
 const activityKey = (item: ChatActivity) => JSON.stringify([
   item.channel, item.team_label, item.participant_user_id,
 ])
@@ -35,6 +37,13 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
   const [teamLabel, setTeamLabel] = useState('')
   const [participantId, setParticipantId] = useState(room.members[0]?.user_id ?? '')
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [privateMessages, setPrivateMessages] = useState<PrivateMessage[]>([])
+  const [privateError, setPrivateError] = useState('')
+  const privateSeenKey = `ma-soi-private-seen:${room.id}:${userId}`
+  const [privateSeen, setPrivateSeen] = useState(() => {
+    try { return Number(window.sessionStorage.getItem(privateSeenKey)) || 0 }
+    catch { return 0 }
+  })
   const [loadedThrough, setLoadedThrough] = useState<{ scope: string; sequence: number } | null>(null)
   const seenKey = `ma-soi-chat-seen:${room.id}:${userId}`
   const [seen, setSeen] = useState<Record<string, number>>(() => {
@@ -51,6 +60,7 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
   const [connectionState, setConnectionState] = useState<'connecting' | 'live' | 'fallback'>('connecting')
   const refreshRef = useRef<() => void>(() => {})
   const refreshContextRef = useRef<() => void>(() => {})
+  const refreshPrivateRef = useRef<() => void>(() => {})
   const onRoomChangedRef = useRef(onRoomChanged)
   onRoomChangedRef.current = onRoomChanged
   const requestIdFor = useRequestIds()
@@ -75,6 +85,34 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
     const timer = window.setInterval(() => void refreshContext(), 6000)
     return () => { active = false; window.clearInterval(timer); refreshContextRef.current = () => {} }
   }, [base])
+
+  useEffect(() => {
+    if (room.is_host || !['playing', 'finished'].includes(room.status)) {
+      setPrivateMessages([])
+      return
+    }
+    let active = true
+    async function refreshPrivate() {
+      try {
+        const items = await api<PrivateMessage[]>(`/api/rooms/${room.id}/game/private-messages`)
+        if (active) { setPrivateMessages(items); setPrivateError('') }
+      } catch (cause) {
+        if (active) setPrivateError(cause instanceof Error ? cause.message : 'Không tải được tin quản trò gửi riêng.')
+      }
+    }
+    void refreshPrivate()
+    refreshPrivateRef.current = () => void refreshPrivate()
+    const timer = window.setInterval(() => void refreshPrivate(), 8000)
+    return () => { active = false; window.clearInterval(timer); refreshPrivateRef.current = () => {} }
+  }, [room.id, room.is_host, room.status])
+
+  useEffect(() => {
+    if (channel !== 'host' || !privateMessages.length) return
+    const latest = privateMessages.at(-1)!.sequence
+    if (latest <= privateSeen) return
+    setPrivateSeen(latest)
+    try { window.sessionStorage.setItem(privateSeenKey, String(latest)) } catch { /* keep in memory */ }
+  }, [channel, privateMessages, privateSeen, privateSeenKey])
 
   useEffect(() => {
     if (context && room.status !== 'finished' && channel === 'team' && context.team_labels.length === 0) setChannel('common')
@@ -112,6 +150,7 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
       entry.channel === item && entry.sequence > (seen[activityKey(entry)] ?? 0)))
     return result
   }, {} as Record<ChatChannel, boolean>)
+  if (!room.is_host && privateMessages.some((item) => item.sequence > privateSeen)) unread.host = true
 
   function query(beforeSequence?: number, afterSequence?: number, afterUpdatedSequence?: number): string {
     const params = new URLSearchParams({ channel })
@@ -209,6 +248,7 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
     const refreshAll = () => {
       refreshRef.current()
       refreshContextRef.current()
+      refreshPrivateRef.current()
       void onRoomChangedRef.current().catch(() => {})
     }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -246,6 +286,7 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
           if (contextTimer !== null) window.clearTimeout(contextTimer)
           contextTimer = window.setTimeout(() => { refreshContextRef.current(); contextTimer = null }, 80)
         } else {
+          if (notice.kind === 'player.private_message_sent') refreshPrivateRef.current()
           if (contextTimer !== null) window.clearTimeout(contextTimer)
           contextTimer = window.setTimeout(() => { refreshContextRef.current(); contextTimer = null }, 80)
           if (notice.kind.startsWith('game.') || notice.kind.startsWith('room.') || notice.kind.startsWith('member.')) {
@@ -407,6 +448,11 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
   const canSend = channel === 'common' ? context?.can_send_common
     : channel === 'team' ? context?.can_send_team && (!room.is_host || context.writable_team_labels.includes(teamLabel))
       : context?.can_send_host && (!room.is_host || Boolean(participantId))
+  const timeline: TimelineItem[] = messages.map((message) => ({ kind: 'chat', message, sequence: message.sequence }))
+  if (channel === 'host' && !room.is_host) {
+    timeline.push(...privateMessages.map((message) => ({ kind: 'private' as const, message, sequence: message.sequence })))
+    timeline.sort((left, right) => left.sequence - right.sequence)
+  }
 
   return <section className="chat-panel" aria-labelledby="chat-title">
     <span className="eyebrow">CHUYỆN TRONG LÀNG</span><h2 id="chat-title">Chat</h2>
@@ -434,11 +480,18 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
         {room.members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}</option>)}
       </select></label>}
     {channel === 'team' && !room.is_host && room.status !== 'finished' && <p className="chat-scope">Đội hiện tại: {context?.current_team_label || 'Không có'} · Tin của các đội bạn từng tham gia vẫn đọc được.</p>}
-    {channel === 'host' && !room.is_host && room.status !== 'finished' && <p className="chat-scope">Chỉ bạn và quản trò thấy cuộc trò chuyện này trong trận.</p>}
+    {channel === 'host' && !room.is_host && room.status !== 'finished' && <p className="chat-scope">Chỉ bạn và quản trò thấy trong trận. Tin quản trò gửi từ Bàn quản trò cũng ở đây; quyền trả lời tùy role của bạn.</p>}
     {before !== null && <button type="button" className="button-secondary chat-older" disabled={loadingOlder}
       onClick={() => void loadOlder()}>{loadingOlder ? 'Đang tải…' : 'Xem tin cũ hơn'}</button>}
     <ol className="chat-message-list" aria-live="polite">
-      {messages.map((message) => <li key={message.id}>
+      {timeline.map((item) => {
+        if (item.kind === 'private') return <li key={`private:${item.message.id}`} className="chat-private-notice">
+          <div><strong>Quản trò</strong><span> · Tin gửi riêng</span>
+            <time dateTime={item.message.created_at}>{new Date(item.message.created_at).toLocaleString('vi-VN')}</time></div>
+          <p>{item.message.text}{item.message.edited_at ? <small> · đã sửa</small> : null}</p>
+        </li>
+        const message = item.message
+        return <li key={`chat:${message.id}`}>
         <div><strong>{message.sender_user_id === room.host_id ? 'Quản trò' : message.sender_name}</strong>
           {channel === 'team' && message.team_label && <span> · {message.team_label}</span>}
           {channel === 'host' && room.status === 'finished' && <span> · {room.members.find((member) => member.user_id === message.participant_user_id)?.display_name ?? 'Người chơi'}</span>}
@@ -460,10 +513,12 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
             {entry.text && <p>{entry.text}</p>}
           </li>)}</ol>
         </details>}
-      </li>)}
+        </li>
+      })}
     </ol>
-    {!messages.length && <p className="chat-empty">Chưa có tin nhắn ở kênh này.</p>}
+    {!timeline.length && <p className="chat-empty">Chưa có tin nhắn ở kênh này.</p>}
     {error && <p className="form-message" role="alert">{error}</p>}
+    {channel === 'host' && privateError && <p className="form-message" role="alert">{privateError}</p>}
     {canSend ? <form className="chat-send" onSubmit={send}>
       <label htmlFor="chat-text">Gửi vào {channelNames[channel].toLowerCase()}</label>
       <textarea id="chat-text" maxLength={2000} value={text} onChange={(event) => setText(event.target.value)} />
