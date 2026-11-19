@@ -101,9 +101,16 @@ case ${1:-} in
     if [[ $1 == retention-delete ]]; then
       [[ $days == 90 ]] || { echo 'The approved room retention period is 90 days.' >&2; exit 2; }
       [[ ${RETENTION_POLICY_APPROVED:-} == 1 ]] || { echo 'Set RETENTION_POLICY_APPROVED=1 only after the public retention policy is finalized.' >&2; exit 2; }
-      pg_run psql -X -v ON_ERROR_STOP=1 -U "$PGUSER" -d "$PGDATABASE" -Atc "WITH victims AS (SELECT id FROM rooms WHERE status = 'finished' AND ended_at < $cutoff ORDER BY ended_at, id LIMIT 100 FOR UPDATE SKIP LOCKED), removed AS (DELETE FROM rooms WHERE id IN (SELECT id FROM victims) RETURNING id) SELECT count(*) FROM removed;"
+      total_removed=0
+      while true; do
+        removed=$(pg_run psql -X -v ON_ERROR_STOP=1 -U "$PGUSER" -d "$PGDATABASE" -Atc "WITH victims AS (SELECT id FROM rooms WHERE status IN ('finished', 'cancelled') AND ended_at < $cutoff ORDER BY ended_at, id LIMIT 100 FOR UPDATE SKIP LOCKED), removed AS (DELETE FROM rooms WHERE id IN (SELECT id FROM victims) RETURNING id) SELECT count(*) FROM removed;")
+        [[ $removed =~ ^[0-9]+$ ]] || { echo 'Invalid retention batch count' >&2; exit 1; }
+        total_removed=$((total_removed + removed))
+        (( removed > 0 )) || break
+      done
+      echo "retention-delete: $total_removed room(s) removed"
     else
-      pg_run psql -X -v ON_ERROR_STOP=1 -U "$PGUSER" -d "$PGDATABASE" -Atc "SELECT count(*) AS eligible_rooms, coalesce(sum((SELECT count(*) FROM game_events e WHERE e.room_id = r.id)), 0) AS affected_events FROM rooms r WHERE status = 'finished' AND ended_at < $cutoff;"
+      pg_run psql -X -v ON_ERROR_STOP=1 -U "$PGUSER" -d "$PGDATABASE" -Atc "SELECT count(*) AS eligible_rooms, coalesce(sum((SELECT count(*) FROM game_events e WHERE e.room_id = r.id)), 0) AS affected_events FROM rooms r WHERE status IN ('finished', 'cancelled') AND ended_at < $cutoff;"
     fi
     ;;
   *) usage ;;

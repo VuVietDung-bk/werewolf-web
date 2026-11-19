@@ -145,7 +145,7 @@ def test_phase_pause_resume_and_manual_finish() -> None:
                 announce_url = f"{board_url}/{target_id}/announce"
                 assert (await post(player_b, announce_url, death_body)).status_code == 403
                 assert (await post(host, announce_url, {**death_body,
-                    "moderator_reason": " "})).status_code == 422
+                    "public_cause": "x" * 501})).status_code == 422
                 announced = await post(host, announce_url, death_body)
                 assert announced.status_code == 200 and not announced.json()["repeated"]
                 assert (await post(host, announce_url, death_body)).json() == {

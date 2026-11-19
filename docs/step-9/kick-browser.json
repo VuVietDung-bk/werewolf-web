@@ -1,0 +1,8 @@
+{
+  "host_kick_button": true,
+  "non_host_cannot_kick": true,
+  "seat_released": true,
+  "target_redirected_home": true,
+  "target_can_create_room": true,
+  "page_errors": []
+}

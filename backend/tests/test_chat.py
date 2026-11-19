@@ -93,7 +93,9 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Quá sớm"))).status_code == 403
                 assert (await post(by_id[villager], f"{chat}/messages", message("host", "Tôi muốn hỏi"))).status_code == 403
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("host", "Chưa đến đêm"))).status_code == 403
+                wolf_common_cursor = (await by_id[wolf_a].get(f"{chat}/messages?channel=common")).json()["room_cursor"]
                 assert (await post(host, f"{chat}/messages", message("host", "Quản trò mở chat", participant_user_id=villager))).status_code == 200
+                assert (await by_id[wolf_a].get(f"{chat}/messages?channel=common")).json()["room_cursor"] == wolf_common_cursor
                 assert (await post(by_id[villager], f"{chat}/messages", message("host", "Tôi trả lời"))).status_code == 200
                 assert (await by_id[wolf_a].get(f"{chat}/messages?channel=host&participant_user_id={villager}")).status_code == 403
                 assert (await by_id[wolf_a].get(f"{chat}/messages?channel=host")).json()["messages"] == []

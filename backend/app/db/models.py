@@ -69,6 +69,9 @@ class Room(Base):
         PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
     code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False)
+    next_room_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("rooms.id", ondelete="SET NULL")
+    )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     seat_limit: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, server_default="open")
@@ -239,7 +242,7 @@ class RoleAssignment(Base):
 class PlayerState(Base):
     __tablename__ = "player_states"
     __table_args__ = (
-        CheckConstraint("publication_disposition IN ('published', 'pending', 'held', 'skipped')",
+        CheckConstraint("publication_disposition IN ('published', 'pending', 'held', 'skipped', 'scheduled')",
                         name="ck_player_states_publication_disposition"),
         ForeignKeyConstraint(["room_id", "user_id"],
                              ["role_assignments.room_id", "role_assignments.user_id"],
@@ -258,6 +261,26 @@ class PlayerState(Base):
     faction_label_override: Mapped[str | None] = mapped_column(String(80))
     team_chat_override_set: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"))
     team_chat_label_override: Mapped[str | None] = mapped_column(String(80))
+
+
+class ScheduledAnnouncement(Base):
+    __tablename__ = "scheduled_announcements"
+    __table_args__ = (
+        Index("ix_scheduled_announcements_room", "room_id", "created_at"),
+        Index("uq_scheduled_announcements_player", "room_id", "player_id", unique=True,
+              postgresql_where=text("player_id IS NOT NULL")),
+        CheckConstraint("kind IN ('status', 'custom')", name="ck_scheduled_announcements_kind"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+                                     ForeignKey("game_events.id", ondelete="CASCADE"), primary_key=True)
+    room_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+                                         ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    player_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 server_default=func.now(), nullable=False)
 
 
 class PlayerNote(Base):
@@ -430,6 +453,7 @@ class VoteRound(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closes_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decision_text: Mapped[str | None] = mapped_column(String(2000))
     decision_reason: Mapped[str | None] = mapped_column(String(1000))
     decision_target_user_id: Mapped[UUID | None] = mapped_column(

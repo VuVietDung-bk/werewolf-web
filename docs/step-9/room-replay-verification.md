@@ -1,0 +1,9 @@
+# Kiểm tra ván mới và giới hạn phòng hoạt động · 26/10/2026
+
+- Một tài khoản chỉ được quản trò hoặc ngồi trong một phòng chưa kết thúc. Hai yêu cầu vào hai phòng cùng lúc cho cùng tài khoản chỉ một yêu cầu thành công; yêu cầu còn lại nhận HTTP 409. Rời sảnh trước trận hoặc rời sau trận giải phóng quyền vào phòng mới. Hủy sảnh trước trận, kể cả sau khi phát role, giải phóng quản trò và thành viên.
+- Sau khi kết thúc, quản trò mở ván kế tiếp với mã mời và bộ role cũ. Server tạo `room_id` mới, sao chép cả icon tải lên và giữ nguyên bản ghi cũ. Những người đã rời hoặc đang hoạt động ở phòng khác không bị chuyển. Mở lặp cùng ván trả về đúng sảnh đã tạo. Người từng tham gia vẫn xem nhật ký cũ.
+- API test `test_room_replay.py` bao phủ giới hạn giữa vai quản trò/người chơi, hai yêu cầu vào đồng thời, rời sau trận, bỏ qua người đang ở phòng khác, mở và chơi trọn ván thứ hai, mã mời, vai trò/icon, hai nhật ký riêng, idempotency và hủy sảnh sau phân role. Toàn bộ backend **37 passed** trên PostgreSQL thử riêng; frontend build và `git diff --check` đạt.
+- [Thử Chromium thật](room-replay-browser.json) đi qua nút mở ván mới của quản trò, thông báo trên trang người chơi khi ván mới mở, chuyển sang sảnh giữ mã mời, rời sảnh và quyền xem ván cũ. Không có lỗi JavaScript. Bài thử đã phát hiện rồi sửa một race condition: effect làm mới phòng hủy yêu cầu tải danh sách phòng vừa phát khi phiên bản phòng đổi.
+- Giao diện trang chủ nhóm các bản ghi của cùng chuỗi ván thành một nút cho ván mới nhất và menu **Lịch sử** cho các ván cũ. Mục lịch sử mở thẳng nhật ký; từ ván cũ có nút về ván hiện tại. Kiểm tra Chromium ở khung 390 px, sau khi tải lại trang và qua chuỗi ba ván: một nút phòng chính, menu chứa hai ván cũ, nút từ Ván 1 đi thẳng tới Ván 3; không có hai nút phòng cùng tên.
+
+Phòng bị hủy được dọn cùng lịch xóa 90 ngày. Mỗi ván kết thúc vẫn có nhật ký riêng đến hạn xóa của chính ván đó.

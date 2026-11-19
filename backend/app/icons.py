@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_user, require_room_access
@@ -17,6 +18,8 @@ from app.roles import locked_host_room
 router = APIRouter(prefix="/api/rooms/{room_id}/icons", tags=["roles"])
 MAX_UPLOAD_BYTES = 1024 * 1024
 MAX_EDGE = 512
+MAX_ICONS_PER_ROOM = 128
+MAX_ROOM_ICON_BYTES = 32 * 1024 * 1024
 ACCEPTED_FORMATS = {"image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP"}
 
 
@@ -64,6 +67,13 @@ async def upload_icon(room_id: UUID, request: Request, user: User = Depends(curr
     if not payload:
         raise HTTPException(status_code=422, detail="Tệp ảnh rỗng")
     image_bytes, width, height = normalize_icon(bytes(payload), declared_type)
+    if len(image_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Icon sau xử lý vượt quá 1 MiB")
+    count, stored_bytes = (await db.execute(select(
+        func.count(RoleIcon.id), func.coalesce(func.sum(func.octet_length(RoleIcon.image_bytes)), 0)
+    ).where(RoleIcon.room_id == room_id))).one()
+    if count >= MAX_ICONS_PER_ROOM or stored_bytes + len(image_bytes) > MAX_ROOM_ICON_BYTES:
+        raise HTTPException(status_code=413, detail="Phòng đã đạt giới hạn lưu trữ icon")
     icon = RoleIcon(room_id=room_id, image_bytes=image_bytes, width=width, height=height)
     db.add(icon)
     await db.flush()

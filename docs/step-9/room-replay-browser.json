@@ -1,0 +1,9 @@
+{
+  "same_invite_code": true,
+  "player_sees_next_lobby": true,
+  "one_room_with_history_menu": true,
+  "three_games_one_room_group": true,
+  "player_can_leave": true,
+  "old_transcript_retained": true,
+  "page_errors": []
+}

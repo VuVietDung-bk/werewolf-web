@@ -1,6 +1,6 @@
 """Daytime ballots are recorded; only the moderator decides the result."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -23,6 +23,10 @@ class VoteCommand(BaseModel):
     client_request_id: UUID
 
 
+class VoteOpenInput(VoteCommand):
+    countdown_seconds: int | None = Field(default=None, ge=10, le=3600)
+
+
 class BallotInput(VoteCommand):
     choice: Literal["target", "skip", "withdraw"]
     target_user_id: UUID | None = None
@@ -40,6 +44,8 @@ class VoteRoundOutput(BaseModel):
     status: Literal["open", "closed"]
     opened_at: datetime
     closed_at: datetime | None
+    closes_at: datetime | None
+    server_now: datetime
     eligible: bool
     my_choice: Literal["target", "skip", "withdrawn"] | None
     my_target_user_id: UUID | None
@@ -135,6 +141,26 @@ class PublicVoteNotice(BaseModel):
     edited_at: datetime | None
 
 
+async def close_expired_vote(db: AsyncSession, room_id: UUID) -> bool:
+    """Close an elapsed round once, with the same room lock as ballot writes."""
+    expired_id = await db.scalar(select(VoteRound.id).where(
+        VoteRound.room_id == room_id, VoteRound.status == "open",
+        VoteRound.closes_at.is_not(None), VoteRound.closes_at <= now_utc()).limit(1))
+    if expired_id is None:
+        return False
+    await db.scalar(select(Room).where(Room.id == room_id).with_for_update())
+    vote = await db.get(VoteRound, expired_id)
+    if vote is None or vote.status != "open" or vote.closes_at is None or vote.closes_at > now_utc():
+        return False
+    vote.status = "closed"
+    vote.closed_at = vote.closes_at
+    await append_event(db, room_id, None, "vote.closed", "room",
+                       {"vote_round_id": str(vote.id), "day_number": vote.day_number,
+                        "automatic": True})
+    await db.commit()
+    return True
+
+
 async def review_for_host(db: AsyncSession, room_id: UUID,
                           vote: VoteRound) -> VoteReviewOutput:
     members = (await db.execute(select(RoomMember, User, PlayerState)
@@ -190,7 +216,8 @@ async def current_round_output(db: AsyncSession, room: Room, vote: VoteRound,
         VoteBallot.choice.in_(("target", "skip")))) if is_host else None
     return VoteRoundOutput(
         id=vote.id, day_number=vote.day_number, status=vote.status,
-        opened_at=vote.opened_at, closed_at=vote.closed_at,
+        opened_at=vote.opened_at, closed_at=vote.closed_at, closes_at=vote.closes_at,
+        server_now=now_utc(),
         eligible=bool(not is_host and state and state.public_is_alive
                       and room.status == "playing" and not room.is_paused
                       and room.phase_type == "day" and room.round_number == vote.day_number
@@ -205,6 +232,7 @@ async def current_round_output(db: AsyncSession, room: Room, vote: VoteRound,
 async def latest_vote(room_id: UUID, user: User = Depends(current_user),
                       db: AsyncSession = Depends(get_db)) -> VoteRoundOutput | None:
     await require_room_access(db, room_id, user.id)
+    await close_expired_vote(db, room_id)
     room = await db.get(Room, room_id)
     vote = await db.scalar(select(VoteRound).where(VoteRound.room_id == room_id)
                            .order_by(VoteRound.opened_at.desc(), VoteRound.id.desc()).limit(1))
@@ -216,6 +244,7 @@ async def host_vote_rounds(room_id: UUID, user: User = Depends(current_user),
                            db: AsyncSession = Depends(get_db)) -> list[VoteHostRoundOutput]:
     if not await require_room_access(db, room_id, user.id):
         raise HTTPException(status_code=403, detail="Chỉ quản trò được xem các vòng vote")
+    await close_expired_vote(db, room_id)
     rounds = (await db.scalars(select(VoteRound).where(VoteRound.room_id == room_id)
                                .order_by(VoteRound.opened_at.desc(), VoteRound.id.desc()))).all()
     if not rounds:
@@ -226,7 +255,8 @@ async def host_vote_rounds(room_id: UUID, user: User = Depends(current_user),
         .group_by(VoteBallot.vote_round_id))).all())
     return [VoteHostRoundOutput(
         id=row.id, day_number=row.day_number, status=row.status,
-        opened_at=row.opened_at, closed_at=row.closed_at,
+        opened_at=row.opened_at, closed_at=row.closed_at, closes_at=row.closes_at,
+        server_now=now_utc(),
         eligible=False, my_choice=None, my_target_user_id=None,
         submitted_count=counts.get(row.id, 0),
         decided_at=row.decided_at, published_at=row.published_at,
@@ -239,6 +269,7 @@ async def review_vote(room_id: UUID, vote_id: UUID,
                       db: AsyncSession = Depends(get_db)) -> VoteReviewOutput:
     if not await require_room_access(db, room_id, user.id):
         raise HTTPException(status_code=403, detail="Chỉ quản trò được xem phiếu")
+    await close_expired_vote(db, room_id)
     vote = await db.get(VoteRound, vote_id)
     if vote is None or vote.room_id != room_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy vòng vote")
@@ -268,26 +299,34 @@ async def public_vote_notices(room_id: UUID, user: User = Depends(current_user),
 
 
 @router.post("", response_model=VoteMutationOutput)
-async def open_vote(room_id: UUID, body: VoteCommand, user: User = Depends(current_user),
+async def open_vote(room_id: UUID, body: VoteOpenInput, user: User = Depends(current_user),
                     db: AsyncSession = Depends(get_db)) -> VoteMutationOutput:
     room = await locked_host_room(db, room_id, user.id)
     prior = await db.scalar(select(GameEvent).where(
         GameEvent.room_id == room_id, GameEvent.client_request_id == body.client_request_id))
     if prior is not None:
-        if prior.kind != "vote.opened":
+        if prior.kind != "vote.opened" or prior.payload.get("countdown_seconds") != body.countdown_seconds:
             raise HTTPException(status_code=409, detail="Mã yêu cầu đã dùng cho thao tác khác")
         return VoteMutationOutput(event_id=prior.id,
                                   vote_round_id=UUID(prior.payload["vote_round_id"]), repeated=True)
     if room.status != "playing" or room.phase_type != "day" or room.is_paused:
         raise HTTPException(status_code=409, detail="Chỉ mở vote trong pha ngày đang diễn ra")
+    if await close_expired_vote(db, room_id):
+        room = await locked_host_room(db, room_id, user.id)
     if await db.scalar(select(VoteRound.id).where(
         VoteRound.room_id == room_id, VoteRound.status == "open")) is not None:
         raise HTTPException(status_code=409, detail="Vòng vote khác vẫn đang mở")
-    vote = VoteRound(room_id=room_id, day_number=room.round_number, status="open")
+    opened_at = now_utc()
+    vote = VoteRound(room_id=room_id, day_number=room.round_number, status="open",
+                     opened_at=opened_at,
+                     closes_at=opened_at + timedelta(seconds=body.countdown_seconds)
+                     if body.countdown_seconds is not None else None)
     db.add(vote)
     await db.flush()
     event = await append_event(db, room_id, user.id, "vote.opened", "room",
-                               {"vote_round_id": str(vote.id), "day_number": vote.day_number},
+                               {"vote_round_id": str(vote.id), "day_number": vote.day_number,
+                                "countdown_seconds": body.countdown_seconds,
+                                "closes_at": vote.closes_at.isoformat() if vote.closes_at else None},
                                client_request_id=body.client_request_id)
     await db.commit()
     return VoteMutationOutput(event_id=event.id, vote_round_id=vote.id, repeated=False)
@@ -304,6 +343,8 @@ async def close_vote(room_id: UUID, vote_id: UUID, body: VoteCommand,
         if prior.kind != "vote.closed" or prior.payload.get("vote_round_id") != str(vote_id):
             raise HTTPException(status_code=409, detail="Mã yêu cầu đã dùng cho thao tác khác")
         return VoteMutationOutput(event_id=prior.id, vote_round_id=vote_id, repeated=True)
+    if await close_expired_vote(db, room_id):
+        raise HTTPException(status_code=409, detail="Vòng vote đã tự đóng khi hết giờ")
     vote = await db.get(VoteRound, vote_id)
     if vote is None or vote.room_id != room_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy vòng vote")
@@ -333,11 +374,14 @@ async def submit_ballot(room_id: UUID, vote_id: UUID, body: BallotInput,
         if prior.kind != "vote.ballot_submitted" or prior.payload.get("request") != request:
             raise HTTPException(status_code=409, detail="Mã yêu cầu đã dùng cho thao tác khác")
         return VoteMutationOutput(event_id=prior.id, vote_round_id=vote_id, repeated=True)
+    if await close_expired_vote(db, room_id):
+        raise HTTPException(status_code=409, detail="Vòng vote đã hết giờ")
     vote = await db.get(VoteRound, vote_id)
     if vote is None or vote.room_id != room_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy vòng vote")
     if (room.status != "playing" or room.is_paused or room.phase_type != "day"
-            or room.round_number != vote.day_number or vote.status != "open"):
+            or room.round_number != vote.day_number or vote.status != "open"
+            or (vote.closes_at is not None and vote.closes_at <= now_utc())):
         raise HTTPException(status_code=409, detail="Vòng vote không còn nhận phiếu")
     voter = await db.get(PlayerState, (room_id, user.id))
     if voter is None or not voter.public_is_alive:
@@ -388,6 +432,8 @@ async def decide_vote(room_id: UUID, vote_id: UUID, body: VoteDecisionInput,
         if prior.kind != "vote.decided" or prior.payload.get("request") != request:
             raise HTTPException(status_code=409, detail="Mã yêu cầu đã dùng cho thao tác khác")
         return VoteMutationOutput(event_id=prior.id, vote_round_id=vote_id, repeated=True)
+    if await close_expired_vote(db, room_id):
+        room = await locked_host_room(db, room_id, user.id)
     vote = await db.get(VoteRound, vote_id)
     if vote is None or vote.room_id != room_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy vòng vote")

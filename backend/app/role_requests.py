@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_user, now_utc, require_room_access, require_room_host
@@ -185,6 +185,10 @@ async def list_role_requests(room_id: UUID,
     filters = [RoleRequest.room_id == room_id]
     if not is_host:
         filters.append(RoleRequest.user_id == user.id)
+    # Do not expose the room's global sequence to a player with no new
+    # request activity of their own.
+    visible_cursor = room.version if is_host else (await db.scalar(select(
+        func.max(RoleRequest.updated_sequence)).where(*filters))) or 0
     if before_sequence is not None:
         filters.append(RoleRequest.sequence < before_sequence)
     if after_sequence is not None:
@@ -212,7 +216,7 @@ async def list_role_requests(room_id: UUID,
         next_before_sequence=page[-1][0].sequence if has_more and not ascending else None,
         next_after_sequence=getattr(page[-1][0], "updated_sequence" if after_updated_sequence is not None else "sequence")
         if has_more and ascending else None,
-        room_cursor=room.version)
+        room_cursor=visible_cursor)
 
 
 @router.post("", response_model=RoleRequestSendOutput)

@@ -33,7 +33,7 @@ async def post(client: httpx.AsyncClient, path: str, body: dict | None = None) -
     return await client.post(path, json=body, headers={"Origin": ORIGIN})
 
 
-def test_icon_upload_limits_room_access_and_role_snapshot() -> None:
+def test_icon_upload_limits_room_access_and_role_snapshot(monkeypatch) -> None:
     async def run() -> None:
         transport = httpx.ASGITransport(app=app)
         async with (httpx.AsyncClient(transport=transport, base_url="http://test") as host,
@@ -67,6 +67,9 @@ def test_icon_upload_limits_room_access_and_role_snapshot() -> None:
                     assert accepted.json()["width"] == 64
                 uploaded = await upload(host, picture())
                 assert uploaded.status_code == 201
+                from app import icons
+                monkeypatch.setattr(icons, "MAX_ICONS_PER_ROOM", 3)
+                assert (await upload(host, picture())).status_code == 413
                 icon_id = uploaded.json()["id"]
                 icon_url = uploaded.json()["url"]
                 assert (await outsider.get(icon_url)).status_code == 403

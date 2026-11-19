@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, jsonBody, type PlayerBoardItem, type PlayerNote, type Role, type RoleCatalog, type Room } from '../api'
+import { api, jsonBody, type PlayerBoardItem, type PlayerNote, type Role, type RoleCatalog, type Room, type ScheduledAnnouncement } from '../api'
 import RoleIcon from './RoleIcon'
 import StatusGlyph from './StatusGlyph'
 import PlayerIdentityControls from './PlayerIdentityControls'
@@ -17,6 +17,7 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
   const [players, setPlayers] = useState<PlayerBoardItem[]>([])
   const [notes, setNotes] = useState<PlayerNote[]>([])
   const [roles, setRoles] = useState<Role[]>([])
+  const [scheduled, setScheduled] = useState<ScheduledAnnouncement[]>([])
   const [modalTab, setModalTab] = useState<'status' | 'identity' | 'message'>('status')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filter, setFilter] = useState<StatusFilter>('all')
@@ -27,6 +28,7 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
   const [error, setError] = useState('')
   const [reason, setReason] = useState('')
   const [publicationReason, setPublicationReason] = useState('')
+  const [publishTiming, setPublishTiming] = useState<'immediate' | 'next_phase'>('immediate')
   const [effect, setEffect] = useState('')
   const [note, setNote] = useState('')
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
@@ -37,9 +39,15 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
   const requestIdFor = useRequestIds()
   const { ask, confirmationDialog } = useConfirmation()
   const selected = players.find((item) => item.user_id === selectedId)
+  const selectedSchedule = scheduled.find((item) => item.player_id === selectedId)
 
   async function refresh() {
-    setPlayers(await api<PlayerBoardItem[]>(`/api/rooms/${room.id}/game/players`))
+    const [board, pending] = await Promise.all([
+      api<PlayerBoardItem[]>(`/api/rooms/${room.id}/game/players`),
+      api<ScheduledAnnouncement[]>(`/api/rooms/${room.id}/game/events/scheduled`),
+    ])
+    setPlayers(board)
+    setScheduled(pending)
   }
 
   useEffect(() => {
@@ -83,6 +91,7 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
     setSelectedId(null)
     setReason('')
     setPublicationReason('')
+    setPublishTiming('immediate')
     setEffect('')
     setNote('')
     setEditingNoteId(null)
@@ -95,13 +104,12 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
   async function submit(action: Action, text?: string) {
     if (!selected || busy) return
     const actualReason = action === 'note' ? null : reason.trim()
-    if (action !== 'note' && !actualReason) return
     if (action === 'kill' || action === 'revive') {
       if (!await ask({ title: action === 'kill' ? 'Đánh dấu chết' : 'Đánh dấu hồi sinh',
         phase: `${room.phase_type === 'night' ? 'Đêm' : 'Ngày'} ${room.round_number}`,
         subject: `Ghế ${selected.seat_number} · ${selected.display_name}`,
         audience: 'Chỉ quản trò trong trận',
-        note: `Lý do quản trò lưu: ${actualReason}. Trạng thái vẫn kín đến khi quản trò công bố riêng.`,
+        note: `${actualReason ? `Lý do quản trò lưu: ${actualReason}. ` : ''}Trạng thái vẫn kín đến khi quản trò công bố riêng.`,
         confirmLabel: action === 'kill' ? 'Đánh dấu chết' : 'Đánh dấu hồi sinh' })) return
     }
     setBusy(true)
@@ -172,21 +180,24 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
 
   async function announce(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!selected || busy || !publicationReason.trim() || selected.is_alive === selected.public_is_alive) return
+    if (!selected || busy || selected.is_alive === selected.public_is_alive) return
     const status = selected.is_alive ? 'hồi sinh' : 'đã chết'
     const publicText = `Ghế ${selected.seat_number} · ${selected.display_name}: ${status}`
       + (publicCause.trim() ? `\nNguyên nhân: ${publicCause.trim()}` : '')
       + (revealRole ? `\nRole: ${selected.role.name}` : '')
-    if (!await ask({ title: selected.is_alive ? 'Công bố hồi sinh' : 'Công bố người chết',
+    const deferred = publishTiming === 'next_phase'
+    if (!await ask({ title: deferred ? 'Hẹn thông báo khi chuyển pha' : selected.is_alive ? 'Công bố hồi sinh' : 'Công bố người chết',
       phase: `${room.phase_type === 'night' ? 'Đêm' : 'Ngày'} ${room.round_number}`,
       subject: `Ghế ${selected.seat_number} · ${selected.display_name}`,
-      audience: 'Toàn bộ thành viên phòng', publicText,
-      note: 'Trạng thái công khai của người chơi sẽ đổi ngay. Lý do quyết định của quản trò vẫn kín trong trận.',
-      confirmLabel: 'Công bố cho toàn phòng' })) return
+      audience: deferred ? 'Toàn phòng ở lần chuyển pha kế tiếp' : 'Toàn bộ thành viên phòng', publicText,
+      note: deferred
+        ? 'Thông báo và trạng thái công khai vẫn kín cho đến khi quản trò chuyển sang ngày hoặc đêm tiếp theo. Có thể hủy lịch trước lúc đó.'
+        : 'Trạng thái công khai của người chơi sẽ đổi ngay. Ghi chú lý do, nếu có, vẫn kín trong trận.',
+      confirmLabel: deferred ? 'Hẹn thông báo' : 'Công bố cho toàn phòng' })) return
     setBusy(true)
     setError('')
-    const payload = { moderator_reason: publicationReason.trim(), public_cause: publicCause.trim() || null,
-      reveal_role: revealRole }
+    const payload = { moderator_reason: publicationReason.trim() || null, public_cause: publicCause.trim() || null,
+      reveal_role: revealRole, publish_timing: publishTiming }
     const request = requestIdFor({ room_id: room.id, player_id: selected.user_id, announce: payload })
     let sent = false
     try {
@@ -198,10 +209,11 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
       setPublicationReason('')
       setPublicCause('')
       setRevealRole(false)
+      setPublishTiming('immediate')
       await Promise.all([refresh(), onRoomChanged()])
     } catch (cause) {
-      setError(sent ? 'Đã công bố nhưng chưa tải lại được bảng. Mở lại tab để kiểm tra.'
-        : cause instanceof Error ? cause.message : 'Không công bố được trạng thái.')
+      setError(sent ? 'Đã ghi thông báo nhưng chưa tải lại được bảng. Mở lại tab để kiểm tra.'
+        : cause instanceof Error ? cause.message : 'Không ghi được thông báo trạng thái.')
       if (!sent) await refresh().catch(() => {})
     } finally { setBusy(false) }
   }
@@ -288,7 +300,8 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
           {!item.is_alive && <StatusGlyph kind="dead" size={17} />}
           {item.is_alive ? 'Đang sống' : 'Đã chết'}{item.is_alive !== item.public_is_alive
             ? ` · ${item.publication_disposition === 'held' ? 'đang giữ kín'
-              : item.publication_disposition === 'skipped' ? 'đã bỏ qua thông báo' : 'chờ quyết định'}`
+              : item.publication_disposition === 'skipped' ? 'đã bỏ qua thông báo'
+                : item.publication_disposition === 'scheduled' ? 'đã hẹn công bố' : 'chờ quyết định'}`
             : !item.is_alive ? ' · đã công bố' : ''}
         </span></div>
       <div className="board-role"><RoleIcon role={item.role} roomId={room.id} size={32} />
@@ -316,13 +329,13 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
         </div>
         {modalTab === 'status' && <>{room.status === 'playing' ? <>
           <div className="stack-form player-action-block">
-            <label htmlFor="player-action-reason">Lý do thao tác kín</label>
+            <label htmlFor="player-action-reason">Ghi chú lý do thao tác kín (tùy chọn)</label>
             <textarea id="player-action-reason" value={reason} maxLength={1000}
               onChange={(event) => setReason(event.target.value)} placeholder="Lý do sẽ xuất hiện trong nhật ký sau trận" />
             <div className="game-control-actions">
-              <button type="button" disabled={busy || room.is_paused || !reason.trim() || !selected.is_alive}
+              <button type="button" disabled={busy || room.is_paused || !selected.is_alive}
                 onClick={() => void submit('kill')}>Giết</button>
-              <button type="button" className="button-secondary" disabled={busy || room.is_paused || !reason.trim() || selected.is_alive}
+              <button type="button" className="button-secondary" disabled={busy || room.is_paused || selected.is_alive}
                 onClick={() => void submit('revive')}>Hồi sinh</button>
             </div>
           </div>
@@ -330,8 +343,10 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
             <h4>Xử lý thông báo {selected.is_alive ? 'hồi sinh' : 'người chết'}</h4>
             <p>Người chơi khác vẫn thấy trạng thái cũ. Giữ kín hoặc bỏ qua không đăng thẻ và không đổi danh sách công khai; quản trò có thể công bố sau bằng lệnh riêng.</p>
             <p>Hiện tại: {selected.publication_disposition === 'held' ? 'đang giữ kín'
-              : selected.publication_disposition === 'skipped' ? 'đã bỏ qua thông báo' : 'chờ quyết định'}</p>
-            <label htmlFor="publication-reason">Lý do xử lý thông báo (kín)</label>
+              : selected.publication_disposition === 'skipped' ? 'đã bỏ qua thông báo'
+                : selected.publication_disposition === 'scheduled' ? 'đã hẹn chuyển pha' : 'chờ quyết định'}</p>
+            {selectedSchedule && <p className="scheduled-inline">Sẽ công bố khi sang {selectedSchedule.target_phase_type === 'day' ? 'Ngày' : 'Đêm'} {selectedSchedule.target_round_number}. Bạn có thể hủy lịch ở tab Thông báo.</p>}
+            <label htmlFor="publication-reason">Lý do xử lý thông báo (chỉ cần khi giữ kín/bỏ qua)</label>
             <textarea id="publication-reason" value={publicationReason} maxLength={1000}
               onChange={(event) => setPublicationReason(event.target.value)} />
             <label htmlFor="public-cause">Nguyên nhân công khai (tùy chọn)</label>
@@ -340,22 +355,29 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
             <label className="consent"><input type="checkbox" checked={revealRole}
               onChange={(event) => setRevealRole(event.target.checked)} />
               <span>Công bố role của người này</span></label>
+            <label htmlFor="publication-timing">Thời điểm công bố</label>
+            <select id="publication-timing" value={publishTiming}
+              onChange={(event) => setPublishTiming(event.target.value as 'immediate' | 'next_phase')}>
+              <option value="immediate">Đăng ngay</option>
+              <option value="next_phase" disabled={Boolean(selectedSchedule)}>Khi chuyển ngày/đêm tiếp theo</option>
+            </select>
             <div className="game-control-actions">
               <button type="button" className="button-secondary" disabled={busy || !publicationReason.trim() || selected.publication_disposition === 'held'}
                 onClick={() => void decidePublication('hold')}>Giữ kín</button>
               <button type="button" className="button-secondary" disabled={busy || !publicationReason.trim() || selected.publication_disposition === 'skipped'}
                 onClick={() => void decidePublication('skip')}>Bỏ qua thông báo</button>
-              <button type="submit" disabled={busy || !publicationReason.trim()}>Công bố cho toàn phòng</button>
+              <button type="submit" disabled={busy || (publishTiming === 'next_phase' && Boolean(selectedSchedule))}>
+                {publishTiming === 'next_phase' ? 'Hẹn thông báo' : 'Công bố cho toàn phòng'}</button>
             </div>
           </form>}
           <form className="stack-form player-action-block" onSubmit={addEffect}>
             <label htmlFor="player-effect">Thêm hiệu ứng</label>
             <input id="player-effect" value={effect} maxLength={80} onChange={(event) => setEffect(event.target.value)} />
-            <button type="submit" disabled={busy || room.is_paused || !effect.trim() || !reason.trim()}>Thêm hiệu ứng</button>
+            <button type="submit" disabled={busy || room.is_paused || !effect.trim()}>Thêm hiệu ứng</button>
           </form>
           {selected.effects.length > 0 && <div className="player-effects"><strong>Hiệu ứng hiện tại</strong>
             {selected.effects.map((value) => <div key={value}><span>{value}</span>
-              <button type="button" className="button-secondary" disabled={busy || room.is_paused || !reason.trim()}
+              <button type="button" className="button-secondary" disabled={busy || room.is_paused}
                 onClick={() => void submit('remove_effect', value)}>Gỡ</button></div>)}</div>}
           <form className="stack-form player-action-block" onSubmit={addNote}>
             <label htmlFor="player-note">Ghi chú quản trò</label>

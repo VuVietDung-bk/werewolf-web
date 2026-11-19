@@ -11,10 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_user, require_room_access, require_room_host
 from app.db.events import append_event
-from app.db.models import ContentRevision, GameEvent, PlayerNote, PlayerState, RoleAssignment, RoleRequest, RoleSnapshot, Room, RoomMember, User
+from app.db.models import ContentRevision, GameEvent, PlayerNote, PlayerState, RoleAssignment, RoleRequest, RoleSnapshot, Room, RoomMember, ScheduledAnnouncement, User
 from app.db.session import get_db
 from app.roles import RoleOutput, effective_role_data
 from app.rooms import locked_host_room
+from app.scheduled_announcements import cancel_status_schedule
 
 router = APIRouter(prefix="/api/rooms/{room_id}/game/players", tags=["game"])
 notices_router = APIRouter(prefix="/api/rooms/{room_id}/game", tags=["game"])
@@ -43,19 +44,19 @@ class PlayerActionInput(BaseModel):
             if self.reason is not None:
                 raise ValueError("Ghi chú tự chứa lý do; không cần lý do riêng")
         elif self.action in {"add_effect", "remove_effect"}:
-            if not self.text or len(self.text) > 80 or not self.reason:
-                raise ValueError("Hiệu ứng cần tên tối đa 80 ký tự và lý do")
+            if not self.text or len(self.text) > 80:
+                raise ValueError("Hiệu ứng cần tên tối đa 80 ký tự")
         elif self.action == "change_role":
-            if self.role_id is None or self.text is not None or not self.reason:
-                raise ValueError("Đổi role cần chọn role trong ván và ghi lý do")
+            if self.role_id is None or self.text is not None:
+                raise ValueError("Đổi role cần chọn role trong ván")
         elif self.action == "change_faction":
-            if not self.text or len(self.text) > 80 or not self.reason:
-                raise ValueError("Đổi phe cần tên phe tối đa 80 ký tự và lý do")
+            if not self.text or len(self.text) > 80:
+                raise ValueError("Đổi phe cần tên phe tối đa 80 ký tự")
         elif self.action == "change_team":
-            if (self.text is not None and len(self.text) > 80) or not self.reason:
-                raise ValueError("Đổi đội chat cần lý do; để trống tên để bỏ đội")
-        elif self.text is not None or not self.reason:
-            raise ValueError("Giết hoặc hồi sinh cần lý do và không nhận tên hiệu ứng")
+            if self.text is not None and len(self.text) > 80:
+                raise ValueError("Tên đội chat tối đa 80 ký tự; để trống để bỏ đội")
+        elif self.text is not None:
+            raise ValueError("Giết hoặc hồi sinh không nhận tên hiệu ứng")
         return self
 
 
@@ -66,7 +67,7 @@ class PlayerBoardItem(BaseModel):
     role: RoleOutput
     is_alive: bool
     public_is_alive: bool
-    publication_disposition: Literal["published", "pending", "held", "skipped"]
+    publication_disposition: Literal["published", "pending", "held", "skipped", "scheduled"]
     public_role_name: str | None
     effects: list[str]
     note_count: int
@@ -89,16 +90,15 @@ class AnnouncementInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     client_request_id: UUID
-    moderator_reason: str = Field(min_length=1, max_length=1000)
+    moderator_reason: str | None = Field(default=None, max_length=1000)
     public_cause: str | None = Field(default=None, max_length=500)
     reveal_role: bool = False
+    publish_timing: Literal["immediate", "next_phase"] = "immediate"
 
     @model_validator(mode="after")
     def valid_text(self):
-        self.moderator_reason = self.moderator_reason.strip()
+        self.moderator_reason = (self.moderator_reason or "").strip() or None
         self.public_cause = (self.public_cause or "").strip() or None
-        if not self.moderator_reason:
-            raise ValueError("Cần ghi lý do công bố")
         return self
 
 
@@ -212,6 +212,9 @@ async def player_action(room_id: UUID, player_id: UUID, body: PlayerActionInput,
     state = await db.get(PlayerState, (room_id, player_id))
     if state is None:
         raise HTTPException(status_code=404, detail="Người chơi không thuộc trận")
+    member = await db.get(RoomMember, (room_id, player_id))
+    if member is None or member.left_at is not None:
+        raise HTTPException(status_code=409, detail="Người chơi đã rời phòng")
     if room.is_paused and body.action != "note":
         raise HTTPException(status_code=409, detail="Trận đang tạm dừng")
     previous: dict = {"is_alive": state.is_alive, "effects": list(state.effects),
@@ -265,6 +268,8 @@ async def player_action(room_id: UUID, player_id: UUID, body: PlayerActionInput,
     else:
         db.add(PlayerNote(room_id=room_id, user_id=player_id, text=body.text))
     if body.action in {"kill", "revive"}:
+        await cancel_status_schedule(db, room_id, player_id, user.id,
+                                     "Trạng thái kín đã thay đổi trước khi công bố")
         state.publication_disposition = ("pending" if state.is_alive != state.public_is_alive
                                          else "published")
     current: dict = {"is_alive": state.is_alive, "effects": list(state.effects),
@@ -309,6 +314,8 @@ async def decide_publication_disposition(room_id: UUID, player_id: UUID,
         GameEvent.payload["request"]["user_id"].astext == str(player_id)
     ).order_by(GameEvent.sequence.desc()).limit(1))
     previous = state.publication_disposition
+    await cancel_status_schedule(db, room_id, player_id, user.id,
+                                 "Quản trò đã chọn cách xử lý thông báo khác")
     state.publication_disposition = disposition
     event = await append_event(db, room_id, user.id, "player.publication_disposition_decided", "host",
                                {"request": request, "previous_disposition": previous,
@@ -329,10 +336,14 @@ async def announce_player_status(room_id: UUID, player_id: UUID, body: Announcem
     room = await locked_host_room(db, room_id, user.id)
     request = {"user_id": str(player_id), "moderator_reason": body.moderator_reason,
                "public_cause": body.public_cause, "reveal_role": body.reveal_role}
+    if body.publish_timing == "next_phase":
+        request["publish_timing"] = "next_phase"
     prior = await db.scalar(select(GameEvent).where(
         GameEvent.room_id == room_id, GameEvent.client_request_id == body.client_request_id))
     if prior is not None:
-        if prior.kind != "player.announcement_decided" or prior.payload.get("request") != request:
+        expected_kind = ("player.announcement_scheduled" if body.publish_timing == "next_phase"
+                         else "player.announcement_decided")
+        if prior.kind != expected_kind or prior.payload.get("request") != request:
             raise HTTPException(status_code=409, detail="Mã yêu cầu đã dùng cho thao tác khác")
         return ActionOutput(event_id=prior.id, repeated=True)
     if room.status != "playing":
@@ -340,6 +351,9 @@ async def announce_player_status(room_id: UUID, player_id: UUID, body: Announcem
     state = await db.get(PlayerState, (room_id, player_id))
     if state is None:
         raise HTTPException(status_code=404, detail="Người chơi không thuộc trận")
+    member = await db.get(RoomMember, (room_id, player_id))
+    if member is None or member.left_at is not None:
+        raise HTTPException(status_code=409, detail="Người chơi đã rời phòng")
     if state.public_is_alive == state.is_alive:
         raise HTTPException(status_code=409, detail="Không có thay đổi sống/chết chờ công bố")
     member = await db.get(RoomMember, (room_id, player_id))
@@ -357,6 +371,28 @@ async def announce_player_status(room_id: UUID, player_id: UUID, body: Announcem
             raise HTTPException(status_code=409, detail="Không tìm thấy role trong bản lưu trận")
     previous_public_is_alive = state.public_is_alive
     previous_disposition = state.publication_disposition
+    if body.publish_timing == "next_phase":
+        if await db.scalar(select(ScheduledAnnouncement.id).where(
+            ScheduledAnnouncement.room_id == room_id,
+            ScheduledAnnouncement.player_id == player_id)) is not None:
+            raise HTTPException(status_code=409, detail="Người chơi đã có thông báo chờ chuyển pha")
+        state.publication_disposition = "scheduled"
+        decision = await append_event(db, room_id, user.id, "player.announcement_scheduled", "host",
+                                      {"request": request,
+                                       "phase_type": room.phase_type,
+                                       "round_number": room.round_number,
+                                       "previous_disposition": previous_disposition},
+                                      client_request_id=body.client_request_id)
+        db.add(ScheduledAnnouncement(id=decision.id, room_id=room_id, player_id=player_id,
+                                     kind="status", payload={"is_alive": state.is_alive,
+                                                              "display_name": player.display_name,
+                                                              "seat_number": member.seat_number,
+                                                              "public_cause": body.public_cause,
+                                                              "revealed_role_name": revealed_role_name}))
+        await db.commit()
+        return ActionOutput(event_id=decision.id, repeated=False)
+    await cancel_status_schedule(db, room_id, player_id, user.id,
+                                 "Quản trò đã công bố ngay")
     state.public_is_alive = state.is_alive
     state.publication_disposition = "published"
     if revealed_role_name is not None:

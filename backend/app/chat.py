@@ -1,6 +1,7 @@
 """Persistent room chat; every read and send is authorized from current DB state."""
 
 from datetime import datetime, timedelta
+from math import ceil
 from typing import Literal
 from uuid import UUID
 
@@ -23,6 +24,7 @@ DEFAULT_CHAT_POLICY = {
     "team_send_in_day": False,
     "dead_common_send": False,
     "dead_team_send": False,
+    "slow_mode_seconds": 0,
 }
 CHAT_BURST_LIMIT = 6
 CHAT_BURST_SECONDS = 10
@@ -38,13 +40,14 @@ class ChatPolicyInput(BaseModel):
     team_send_in_day: bool
     dead_common_send: bool
     dead_team_send: bool
-    reason: str = Field(min_length=1, max_length=1000)
+    slow_mode_seconds: int = Field(default=0, ge=0, le=10)
+    reason: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def valid_reason(self):
-        self.reason = self.reason.strip()
-        if not self.reason:
-            raise ValueError("Cần lý do đổi quyền chat")
+        self.reason = (self.reason or "").strip() or None
+        if self.slow_mode_seconds == 1:
+            raise ValueError("Slow mode phải tắt hoặc từ 2 đến 10 giây")
         return self
 
 
@@ -104,7 +107,8 @@ class ChatContext(BaseModel):
     team_labels: list[str]
     writable_team_labels: list[str]
     current_team_label: str | None
-    policy: dict[str, bool]
+    policy: dict[str, bool | int]
+    next_chat_at: datetime | None
     can_send_common: bool
     can_send_team: bool
     can_send_host: bool
@@ -174,12 +178,18 @@ async def change_chat_mute(room_id: UUID, player_id: UUID, body: ChatMuteInput,
     return ChatSendOutput(event_id=event.id, repeated=False)
 
 
-async def check_chat_rate(db: AsyncSession, room_id: UUID, user_id: UUID) -> None:
+async def check_chat_rate(db: AsyncSession, room_id: UUID, user_id: UUID,
+                          slow_mode_seconds: int = 0) -> None:
     now = now_utc()
     times = (await db.scalars(select(ChatMessage.created_at).where(
         ChatMessage.room_id == room_id, ChatMessage.sender_user_id == user_id,
         ChatMessage.created_at >= now - timedelta(seconds=CHAT_MINUTE_SECONDS)
     ).order_by(ChatMessage.created_at.desc()).limit(CHAT_MINUTE_LIMIT))).all()
+    if slow_mode_seconds and times and times[0] > now - timedelta(seconds=slow_mode_seconds):
+        retry_after = max(1, ceil((times[0] + timedelta(seconds=slow_mode_seconds) - now).total_seconds()))
+        raise HTTPException(status_code=429,
+                            detail=f"Slow mode: chờ {retry_after} giây trước khi gửi tin tiếp",
+                            headers={"Retry-After": str(retry_after)})
     if len(times) >= CHAT_MINUTE_LIMIT:
         raise HTTPException(status_code=429, detail="Gửi tin quá nhanh, vui lòng thử lại sau",
                             headers={"Retry-After": str(CHAT_MINUTE_SECONDS)})
@@ -225,7 +235,7 @@ async def role_for(db: AsyncSession, room_id: UUID, user_id: UUID) -> tuple[dict
     return effective_role_data(definitions, assignment.role_id, state), state
 
 
-def policy_for(room: Room) -> dict[str, bool]:
+def policy_for(room: Room) -> dict[str, bool | int]:
     return {**DEFAULT_CHAT_POLICY, **(room.chat_policy or {})}
 
 
@@ -335,10 +345,15 @@ async def chat_context(room_id: UUID, user: User = Depends(current_user),
         func.max(ChatMessage.sequence)
     ).where(*incoming_filters).group_by(
         ChatMessage.channel, ChatMessage.team_label, ChatMessage.participant_user_id))).all()
+    slow_seconds = 0 if is_host else int(policy_for(room)["slow_mode_seconds"])
+    last_chat_at = await db.scalar(select(ChatMessage.created_at).where(
+        ChatMessage.room_id == room_id, ChatMessage.sender_user_id == user.id
+    ).order_by(ChatMessage.created_at.desc()).limit(1)) if slow_seconds else None
     return ChatContext(team_labels=sorted(label for label in teams if label),
                        writable_team_labels=writable_teams,
                        current_team_label=current_team,
                        policy=policy_for(room),
+                       next_chat_at=last_chat_at + timedelta(seconds=slow_seconds) if last_chat_at else None,
                        can_send_common=(common_writable(room) if is_host else player_common_writable(room, role_state)) and not is_muted,
                        can_send_team=bool(writable_teams) and not is_muted,
                        can_send_host=(room.status == "playing" and not room.is_paused) if is_host
@@ -369,12 +384,6 @@ async def chat_messages(room_id: UUID, channel: Channel,
     if not is_host and not finished and (team_label is not None or participant_user_id is not None):
         raise HTTPException(status_code=403, detail="Không được chọn cuộc trò chuyện của người khác")
     filters = [ChatMessage.room_id == room_id, ChatMessage.channel == channel]
-    if before_sequence is not None:
-        filters.append(ChatMessage.sequence < before_sequence)
-    if after_sequence is not None:
-        filters.append(ChatMessage.sequence > after_sequence)
-    if after_updated_sequence is not None:
-        filters.append(ChatMessage.updated_sequence > after_updated_sequence)
     if channel == "team":
         if is_host or finished:
             if team_label is not None:
@@ -393,6 +402,16 @@ async def chat_messages(room_id: UUID, channel: Channel,
             filters.append(ChatMessage.participant_user_id == user.id)
     elif team_label is not None or participant_user_id is not None:
         raise HTTPException(status_code=422, detail="Kênh chung không có bộ lọc riêng")
+    # A player's polling cursor must not move when an event in another
+    # conversation (or a host-only action) changes the room-wide version.
+    visible_cursor = room.version if is_host else (await db.scalar(select(
+        func.max(ChatMessage.updated_sequence)).where(*filters))) or 0
+    if before_sequence is not None:
+        filters.append(ChatMessage.sequence < before_sequence)
+    if after_sequence is not None:
+        filters.append(ChatMessage.sequence > after_sequence)
+    if after_updated_sequence is not None:
+        filters.append(ChatMessage.updated_sequence > after_updated_sequence)
     if after_updated_sequence is None and not finished:
         filters.append(or_(ContentRevision.source_event_id.is_(None), ContentRevision.deleted_at.is_(None)))
     ascending = after_sequence is not None or after_updated_sequence is not None
@@ -436,7 +455,7 @@ async def chat_messages(room_id: UUID, channel: Channel,
                     next_before_sequence=page[-1][0].sequence if has_more and not ascending else None,
                     next_after_sequence=page[-1][0].sequence if has_more and after_sequence is not None else None,
                     next_after_updated_sequence=page[-1][0].updated_sequence if has_more and after_updated_sequence is not None else None,
-                    room_cursor=room.version)
+                    room_cursor=visible_cursor)
 
 
 @router.post("/messages", response_model=ChatSendOutput)
@@ -458,7 +477,7 @@ async def send_chat(room_id: UUID, body: ChatSendInput,
         mute = await db.get(ChatMute, (room_id, user.id))
         if mute and mute.is_muted:
             raise HTTPException(status_code=403, detail="Quản trò đã tạm chặn quyền gửi chat")
-    await check_chat_rate(db, room_id, user.id)
+    await check_chat_rate(db, room_id, user.id, 0 if is_host else int(policy_for(room)["slow_mode_seconds"]))
     team_label = None
     participant_id = None
     recipients: list[str] = []

@@ -25,10 +25,14 @@ const labels: Record<string, string> = {
   'player.change_faction': 'Đổi phe', 'player.change_team': 'Đổi đội chat',
   'player.publication_disposition_decided': 'Giữ hoặc bỏ thông báo',
   'player.announcement_decided': 'Chốt thông báo trạng thái',
+  'player.announcement_scheduled': 'Hẹn công bố trạng thái',
   'player.death_announced': 'Công bố người chết',
   'player.revival_announced': 'Công bố hồi sinh',
   'player.private_message_sent': 'Tin riêng quản trò',
   'event.custom_announcement': 'Thông báo công khai',
+  'event.announcement_scheduled': 'Hẹn thông báo công khai',
+  'event.scheduled_announcement_released': 'Đăng thông báo đã hẹn',
+  'event.scheduled_announcement_cancelled': 'Hủy thông báo đã hẹn',
   'event.correction_decided': 'Đính chính quyết định',
   'event.public_correction': 'Công bố đính chính',
   'content.revision_decided': 'Sửa hoặc xóa nội dung',
@@ -36,6 +40,7 @@ const labels: Record<string, string> = {
   'game.started': 'Bắt đầu trận', 'game.phase_advanced': 'Chuyển pha',
   'game.finished': 'Kết thúc trận', 'game.paused': 'Tạm dừng trận',
   'game.resumed': 'Tiếp tục trận',
+  'room.next_game_opened': 'Mở ván mới',
 }
 
 function object(value: unknown): Record<string, unknown> {

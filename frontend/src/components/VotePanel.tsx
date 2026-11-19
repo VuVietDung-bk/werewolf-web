@@ -19,10 +19,18 @@ export default function VotePanel({ room, onRoomChanged }: {
   const [includeVoterNames, setIncludeVoterNames] = useState(false)
   const [includeReason, setIncludeReason] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [countdownSeconds, setCountdownSeconds] = useState(60)
+  const [nowMs, setNowMs] = useState(Date.now())
+  const [clockOffsetMs, setClockOffsetMs] = useState(0)
   const [error, setError] = useState('')
   const requestIdFor = useRequestIds()
   const { ask, confirmationDialog } = useConfirmation()
   const base = `/api/rooms/${room.id}/votes`
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => setSelectedRoundId(''), [room.id])
 
@@ -36,6 +44,7 @@ export default function VotePanel({ room, onRoomChanged }: {
   }
 
   function applyView(view: Awaited<ReturnType<typeof fetchView>>) {
+    if (view.latest) setClockOffsetMs(new Date(view.latest.server_now).getTime() - Date.now())
     setLatestVote(view.latest)
     setHostRounds(view.rounds)
     setVote(view.selected)
@@ -57,6 +66,12 @@ export default function VotePanel({ room, onRoomChanged }: {
   }, [base, room.version, room.is_host, selectedRoundId])
 
   useEffect(() => setTargetId(''), [vote?.id])
+  useEffect(() => {
+    if (!vote?.closes_at || vote.status !== 'open') return
+    const delay = Math.max(0, new Date(vote.closes_at).getTime() - Date.now() - clockOffsetMs) + 150
+    const timer = window.setTimeout(() => void load(vote.id), delay)
+    return () => window.clearTimeout(timer)
+  }, [vote?.id, vote?.closes_at, vote?.status, clockOffsetMs])
   useEffect(() => {
     setDecisionText(''); setDecisionReason(''); setDecisionTargetId('')
     setIncludeResult(true); setIncludeVoterNames(false); setIncludeReason(false)
@@ -123,11 +138,12 @@ export default function VotePanel({ room, onRoomChanged }: {
 
   async function openRound() {
     if (busy) return
+    const timerDescription = countdownSeconds ? `Vòng tự đóng sau ${countdownSeconds} giây.` : 'Quản trò đóng vòng thủ công.'
     if (!await ask({ title: 'Mở vòng vote', phase: `Ngày ${room.round_number}`,
       subject: room.name, audience: 'Toàn bộ thành viên phòng',
-      publicText: `Vòng vote Ngày ${room.round_number} mở. Người sống có thể chọn người sống, bỏ qua hoặc chưa gửi phiếu.`,
+      publicText: `Vòng vote Ngày ${room.round_number} mở. Người sống có thể chọn người sống, bỏ qua hoặc chưa gửi phiếu. ${timerDescription}`,
       confirmLabel: 'Mở vòng vote' })) return
-    await run(base, {}, true)
+    await run(base, { countdown_seconds: countdownSeconds || null }, true)
   }
 
   async function closeRound() {
@@ -141,6 +157,8 @@ export default function VotePanel({ room, onRoomChanged }: {
   }
 
   const currentDay = room.status === 'playing' && room.phase_type === 'day'
+  const secondsLeft = vote?.status === 'open' && vote.closes_at
+    ? Math.max(0, Math.ceil((new Date(vote.closes_at).getTime() - nowMs - clockOffsetMs) / 1000)) : null
   const currentOpen = latestVote?.status === 'open' && latestVote.day_number === room.round_number
   const showingLatest = !vote || vote.id === latestVote?.id
   const canOpen = room.is_host && currentDay && !room.is_paused && !currentOpen && showingLatest
@@ -161,7 +179,7 @@ export default function VotePanel({ room, onRoomChanged }: {
 
   return <section className="vote-panel" aria-labelledby="vote-title">
     <span className="eyebrow">BỎ PHIẾU THỦ CÔNG</span><h2 id="vote-title">Vote ban ngày</h2>
-    <p>Quản trò mở, đóng và quyết định vote. Có thể vote từ Ngày 0; không cần đủ phiếu. Phiếu không tự giết ai hay chuyển pha.</p>
+    <p>Quản trò mở và quyết định vote; có thể đặt giờ tự đóng hoặc đóng sớm. Đồng hồ vẫn chạy khi trận tạm dừng. Có thể vote từ Ngày 0; không cần đủ phiếu. Phiếu không tự giết ai hay chuyển pha.</p>
     {error && <p className="form-message" role="alert">{error}</p>}
     {room.is_host && hostRounds.length > 1 && <label className="vote-round-picker" htmlFor="vote-round-select">
       Xem vòng vote
@@ -174,15 +192,26 @@ export default function VotePanel({ room, onRoomChanged }: {
     </label>}
     {vote ? <div className="vote-state">
       <strong>Ngày {vote.day_number} · {vote.status === 'open' ? 'Đang nhận phiếu' : 'Đã đóng'}</strong>
+      {secondsLeft !== null && <p role="timer" className="vote-countdown">{secondsLeft > 0
+        ? `Còn ${Math.floor(secondsLeft / 60).toString().padStart(2, '0')}:${(secondsLeft % 60).toString().padStart(2, '0')} trước khi đóng vote`
+        : 'Hết giờ, đang cập nhật vòng vote…'}</p>}
       {room.is_host ? <p>Đã gửi hoặc bỏ qua: {vote.submitted_count ?? 0} người.{vote.status === 'open' ? ' Đóng vòng khi muốn ngừng nhận phiếu.' : ''}</p>
         : <p>Phiếu của bạn: {vote.my_choice === 'target' ? `chọn ${chosenName ?? 'người chơi'}`
           : vote.my_choice === 'skip' ? 'bỏ qua' : vote.my_choice === 'withdrawn' ? 'đã rút' : 'chưa gửi'}.
           Người chơi khác không thấy phiếu của bạn trong trận.</p>}
     </div> : <p>Chưa có vòng vote nào.</p>}
     {room.is_host ? <div className="inline-actions">
+      {canOpen && <label htmlFor="vote-countdown-setting">Tự đóng sau
+        <select id="vote-countdown-setting" value={countdownSeconds} disabled={busy}
+          onChange={(event) => setCountdownSeconds(Number(event.target.value))}>
+          <option value={0}>Không đếm ngược</option>
+          {[10, 30, 60, 120, 300, 600, 900, 1800, 3600].map((seconds) =>
+            <option key={seconds} value={seconds}>{seconds < 60 ? `${seconds} giây` : `${seconds / 60} phút`}</option>)}
+        </select>
+      </label>}
       {canOpen && <button type="button" disabled={busy} onClick={() => void openRound()}>Mở vòng vote</button>}
-      {currentOpen && showingLatest && vote && <button type="button" disabled={busy} onClick={() => void closeRound()}>Đóng vòng vote</button>}
-    </div> : vote?.eligible ? <>
+      {currentOpen && showingLatest && vote && <button type="button" disabled={busy || secondsLeft === 0} onClick={() => void closeRound()}>Đóng vòng vote</button>}
+    </div> : vote?.eligible && secondsLeft !== 0 ? <>
       <form className="stack-form vote-form" onSubmit={cast}>
         <label htmlFor="vote-target">Chọn một người đang được công bố là sống</label>
         <select id="vote-target" value={targetId} onChange={(event) => setTargetId(event.target.value)}>

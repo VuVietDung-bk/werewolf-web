@@ -11,6 +11,7 @@ export type RoomSummary = {
   result_label: string | null
   result_reason: string | null
   ended_at: string | null
+  next_room_id: string | null
   is_host: boolean
 }
 export type RoomMember = {
@@ -121,19 +122,30 @@ export type PlayerBoardItem = {
   role: Role
   is_alive: boolean
   public_is_alive: boolean
-  publication_disposition: 'published' | 'pending' | 'held' | 'skipped'
+  publication_disposition: 'published' | 'pending' | 'held' | 'skipped' | 'scheduled'
   public_role_name: string | null
   effects: string[]
   note_count: number
   pending_request_count: number
 }
 export type PlayerNote = { id: string; text: string; created_at: string; edited_at: string | null }
+export type ScheduledAnnouncement = {
+  id: string
+  kind: 'status' | 'custom'
+  player_id: string | null
+  text: string
+  target_phase_type: 'day' | 'night'
+  target_round_number: number
+  created_at: string
+}
 export type VoteRound = {
   id: string
   day_number: number
   status: 'open' | 'closed'
   opened_at: string
   closed_at: string | null
+  closes_at: string | null
+  server_now: string
   eligible: boolean
   my_choice: 'target' | 'skip' | 'withdrawn' | null
   my_target_user_id: string | null
@@ -220,12 +232,14 @@ export type ChatPolicy = {
   team_send_in_day: boolean
   dead_common_send: boolean
   dead_team_send: boolean
+  slow_mode_seconds: number
 }
 export type ChatContext = {
   team_labels: string[]
   writable_team_labels: string[]
   current_team_label: string | null
   policy: ChatPolicy
+  next_chat_at: string | null
   can_send_common: boolean
   can_send_team: boolean
   can_send_host: boolean

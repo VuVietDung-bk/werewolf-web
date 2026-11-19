@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_user, require_room_access, require_room_host
 from app.db.events import append_event
-from app.db.models import ContentRevision, GameEvent, PlayerState, PrivateMessage, User
+from app.db.models import ContentRevision, GameEvent, PlayerState, PrivateMessage, RoomMember, User
 from app.db.session import get_db
 from app.rooms import locked_host_room
 
@@ -102,6 +102,9 @@ async def send_private_message(room_id: UUID, player_id: UUID, body: PrivateMess
         raise HTTPException(status_code=409, detail="Trận không ở trạng thái đang chơi")
     if await db.get(PlayerState, (room_id, player_id)) is None:
         raise HTTPException(status_code=404, detail="Người chơi không thuộc trận")
+    member = await db.get(RoomMember, (room_id, player_id))
+    if member is None or member.left_at is not None:
+        raise HTTPException(status_code=409, detail="Người chơi đã rời phòng")
     event = await append_event(db, room_id, user.id, "player.private_message_sent", "host",
                                payload, client_request_id=body.client_request_id)
     db.add(PrivateMessage(room_id=room_id, user_id=player_id, sender_user_id=user.id,

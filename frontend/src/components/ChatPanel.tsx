@@ -55,10 +55,12 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [nowMs, setNowMs] = useState(Date.now())
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [error, setError] = useState('')
   const [connectionState, setConnectionState] = useState<'connecting' | 'live' | 'fallback'>('connecting')
   const refreshRef = useRef<() => void>(() => {})
+  const settingsDialog = useRef<HTMLDialogElement>(null)
   const refreshContextRef = useRef<() => void>(() => {})
   const refreshPrivateRef = useRef<() => void>(() => {})
   const onRoomChangedRef = useRef(onRoomChanged)
@@ -66,6 +68,11 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
   const requestIdFor = useRequestIds()
   const { ask, confirmationDialog } = useConfirmation()
   const base = `/api/rooms/${room.id}/chat`
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -339,6 +346,7 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
         sent = true
         request.acknowledge()
         setText('')
+        refreshContextRef.current()
         const page = await api<ChatPage>(query())
         setMessages((current) => mergeMessages(current, page.messages))
       } catch (cause) {
@@ -383,20 +391,21 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
 
   async function savePolicy(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!policyDraft || !policyReason.trim() || busy) return
+    if (!policyDraft || busy) return
     const summary = [
       `Chat chung ban đêm: ${policyDraft.common_send_at_night ? 'cho gửi' : 'chỉ đọc'}`,
       `Chat đội ban ngày: ${policyDraft.team_send_in_day ? 'cho gửi' : 'chỉ đọc'}`,
       `Người chết gửi chat chung: ${policyDraft.dead_common_send ? 'có' : 'không'}`,
       `Người chết gửi chat đội: ${policyDraft.dead_team_send ? 'có' : 'không'}`,
+      `Slow mode: ${policyDraft.slow_mode_seconds ? `${policyDraft.slow_mode_seconds} giây` : 'tắt'}`,
     ].join(' · ')
     const confirmed = await ask({ title: 'Đổi quyền chat',
       phase: room.status === 'playing' ? `${room.phase_type === 'night' ? 'Đêm' : 'Ngày'} ${room.round_number}` : 'Trước trận',
       subject: room.name, audience: 'Toàn phòng', publicText: summary,
-      note: `Lý do: ${policyReason.trim()}. Quyền mới có hiệu lực ngay và được lưu vào sự kiện.`,
+      note: `${policyReason.trim() ? `Lý do: ${policyReason.trim()}. ` : ''}Quyền mới có hiệu lực ngay và được lưu vào sự kiện.`,
       confirmLabel: 'Lưu quyền chat' })
     if (!confirmed) return
-    const payload = { ...policyDraft, reason: policyReason.trim() }
+    const payload = { ...policyDraft, reason: policyReason.trim() || null }
     const request = requestIdFor({ room_id: room.id, policy: payload })
     setBusy(true)
     setError('')
@@ -449,6 +458,8 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
     : channel === 'team' ? context?.can_send_team && (!room.is_host || context.writable_team_labels.includes(teamLabel))
       : context?.can_send_host && (!room.is_host || Boolean(participantId))
   const timeline: TimelineItem[] = messages.map((message) => ({ kind: 'chat', message, sequence: message.sequence }))
+  const slowRemaining = room.is_host || !context?.next_chat_at ? 0
+    : Math.max(0, Math.ceil((new Date(context.next_chat_at).getTime() - nowMs) / 1000))
   if (channel === 'host' && !room.is_host) {
     timeline.push(...privateMessages.map((message) => ({ kind: 'private' as const, message, sequence: message.sequence })))
     timeline.sort((left, right) => left.sequence - right.sequence)
@@ -460,8 +471,10 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
     <p>{room.status === 'finished'
       ? 'Sau trận, mọi người từng tham gia xem được cả ba kênh và từng bản sửa/xóa trong lịch sử mỗi tin.'
       : 'Chat đội và chat với quản trò chỉ hiện cho người có quyền trong trận. Sau trận, toàn bộ chat được công bố cho người từng tham gia.'}</p>
-    {context && <p className="chat-policy-summary">Quyền hiện tại: chat chung ban đêm {context.policy.common_send_at_night ? 'được gửi' : 'chỉ đọc'}; chat đội ban ngày {context.policy.team_send_in_day ? 'được gửi' : 'chỉ đọc'}; người chết {context.policy.dead_common_send ? 'được gửi chat chung' : 'chỉ đọc chat chung'} và {context.policy.dead_team_send ? 'được tham gia chat đội' : 'chỉ đọc tin đội cũ'}.</p>}
+    {context && <p className="chat-policy-summary">Quyền hiện tại: chat chung ban đêm {context.policy.common_send_at_night ? 'được gửi' : 'chỉ đọc'}; chat đội ban ngày {context.policy.team_send_in_day ? 'được gửi' : 'chỉ đọc'}; người chết {context.policy.dead_common_send ? 'được gửi chat chung' : 'chỉ đọc chat chung'} và {context.policy.dead_team_send ? 'được tham gia chat đội' : 'chỉ đọc tin đội cũ'}. Slow mode: {context.policy.slow_mode_seconds ? `${context.policy.slow_mode_seconds} giây giữa hai tin của mỗi người chơi` : 'tắt'}.</p>}
     {context?.is_muted && <p className="chat-mute-notice" role="status">Quản trò đã tạm chặn quyền gửi chat của bạn. Lý do: {context.mute_reason}</p>}
+    {room.is_host && room.status !== 'finished' && <button type="button" className="button-secondary chat-settings-trigger"
+      onClick={() => settingsDialog.current?.showModal()}>Cài đặt chat</button>}
     <div className="chat-channel-tabs" role="group" aria-label="Kênh chat">
       {(['common', ...(room.status === 'finished' || context?.team_labels.length ? ['team'] : []), 'host'] as ChatChannel[]).map((item) => <button key={item} type="button"
         className={`${channel === item ? 'active ' : ''}${unread[item] ? 'has-unread' : ''}`} aria-pressed={channel === item}
@@ -486,13 +499,14 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
     <ol className="chat-message-list" aria-live="polite">
       {timeline.map((item) => {
         if (item.kind === 'private') return <li key={`private:${item.message.id}`} className="chat-private-notice">
-          <div><strong>Quản trò</strong><span> · Tin gửi riêng</span>
+          <div><strong>Quản trò</strong><span className="chat-host-badge">Quản trò chính thức</span><span> · Tin gửi riêng</span>
             <time dateTime={item.message.created_at}>{new Date(item.message.created_at).toLocaleString('vi-VN')}</time></div>
           <p>{item.message.text}{item.message.edited_at ? <small> · đã sửa</small> : null}</p>
         </li>
         const message = item.message
         return <li key={`chat:${message.id}`}>
         <div><strong>{message.sender_user_id === room.host_id ? 'Quản trò' : message.sender_name}</strong>
+          {message.sender_user_id === room.host_id && <span className="chat-host-badge">Quản trò chính thức</span>}
           {channel === 'team' && message.team_label && <span> · {message.team_label}</span>}
           {channel === 'host' && room.status === 'finished' && <span> · {room.members.find((member) => member.user_id === message.participant_user_id)?.display_name ?? 'Người chơi'}</span>}
           <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString('vi-VN')}</time></div>
@@ -522,10 +536,13 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
     {canSend ? <form className="chat-send" onSubmit={send}>
       <label htmlFor="chat-text">Gửi vào {channelNames[channel].toLowerCase()}</label>
       <textarea id="chat-text" maxLength={2000} value={text} onChange={(event) => setText(event.target.value)} />
-      <button disabled={busy || !text.trim()}>{busy ? 'Đang gửi…' : 'Gửi tin'}</button>
+      {slowRemaining > 0 && <small role="status">Slow mode: gửi tiếp sau {slowRemaining} giây.</small>}
+      <button disabled={busy || !text.trim() || slowRemaining > 0}>{busy ? 'Đang gửi…' : slowRemaining ? `Chờ ${slowRemaining}s` : 'Gửi tin'}</button>
     </form> : <p className="chat-scope">Hiện tại bạn chỉ có thể đọc kênh này.</p>}
-    {room.is_host && room.status !== 'finished' && <details className="chat-settings">
-      <summary>Cài đặt chat và chặn người chơi</summary>
+    {room.is_host && room.status !== 'finished' && <dialog ref={settingsDialog} className="settings-dialog" aria-labelledby="chat-settings-title">
+      <div className="settings-dialog-header"><h2 id="chat-settings-title">Cài đặt chat</h2>
+        <button type="button" className="button-secondary" onClick={() => settingsDialog.current?.close()} aria-label="Đóng cài đặt chat">✕</button></div>
+      {error && <p className="form-message" role="alert">{error}</p>}
       {policyDraft && <form className="chat-policy" onSubmit={(event) => void savePolicy(event)}>
       <h3>Chính sách chat của phòng</h3>
       <p>Trạng thái tạm dừng luôn chặn gửi tin. Quyền nhắn quản trò vẫn do từng role quyết định.</p>
@@ -534,15 +551,23 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
         ['team_send_in_day', 'Cho gửi chat đội ban ngày'],
         ['dead_common_send', 'Cho người chết gửi chat chung'],
         ['dead_team_send', 'Cho người chết gửi và nhận tin đội mới'],
-      ] as [keyof ChatPolicy, string][]).map(([key, label]) => <label key={key} className="consent">
+      ] as [Exclude<keyof ChatPolicy, 'slow_mode_seconds'>, string][]).map(([key, label]) => <label key={key} className="consent">
         <input type="checkbox" checked={policyDraft[key]} onChange={(event) =>
           setPolicyDraft((current) => current ? { ...current, [key]: event.target.checked } : current)} />
         <span>{label}</span>
       </label>)}
-      <label htmlFor="chat-policy-reason">Lý do thay đổi</label>
+      <label htmlFor="chat-slow-mode">Slow mode cho người chơi</label>
+      <select id="chat-slow-mode" value={policyDraft.slow_mode_seconds} onChange={(event) =>
+        setPolicyDraft((current) => current ? { ...current, slow_mode_seconds: Number(event.target.value) } : current)}>
+        <option value={0}>Tắt</option>
+        {Array.from({ length: 9 }, (_, index) => index + 2).map((seconds) =>
+          <option key={seconds} value={seconds}>{seconds} giây</option>)}
+      </select>
+      <small>Áp dụng giữa hai tin của cùng người chơi trên mọi kênh. Quản trò không bị giới hạn.</small>
+      <label htmlFor="chat-policy-reason">Lý do thay đổi (tùy chọn)</label>
       <input id="chat-policy-reason" maxLength={1000} value={policyReason}
         onChange={(event) => setPolicyReason(event.target.value)} />
-      <button disabled={busy || !policyReason.trim() || JSON.stringify(policyDraft) === JSON.stringify(context?.policy)}>Lưu chính sách</button>
+      <button disabled={busy || JSON.stringify(policyDraft) === JSON.stringify(context?.policy)}>Lưu chính sách</button>
       </form>}
       <form className="chat-policy" onSubmit={(event) => void changeMute(event)}>
       <h3>Quản lý quyền gửi chat từng người</h3>
@@ -560,7 +585,7 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
         {context?.muted_players.some((item) => item.user_id === mutePlayerId) ? 'Mở lại chat' : 'Chặn gửi chat'}
       </button>
       </form>
-    </details>}
+    </dialog>}
     {confirmationDialog}
   </section>
 }

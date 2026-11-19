@@ -85,6 +85,7 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                 assert (await post(day, requests, request("x" * 2001))).status_code == 422
                 assert (await post(day, requests, {**request("Đúng"), "target_id": day_id})).status_code == 422
 
+                night_request_cursor = (await night.get(requests)).json()["room_cursor"]
                 texts = ["3", "A, B và C", "Không có mục tiêu"]
                 sent = []
                 for text in texts:
@@ -92,6 +93,7 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                     response = await post(day, requests, body)
                     assert response.status_code == 200 and response.json()["repeated"] is False
                     sent.append((body, response.json()))
+                assert (await night.get(requests)).json()["room_cursor"] == night_request_cursor
                 repeated = await post(day, requests, sent[0][0])
                 assert repeated.status_code == 200 and repeated.json()["id"] == sent[0][1]["id"]
                 assert repeated.json()["repeated"] is True
@@ -151,12 +153,9 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                 assert (await post(host, review_path, {**progress, "reply_text": "Thay đổi"})).status_code == 409
                 assert (await host.get(f"{requests}?after_updated_sequence=1&after_sequence=1")).status_code == 422
 
-                assert (await post(host, f"{base}/game/players/{night_id}/actions", {
-                    "client_request_id": str(uuid4()), "action": "add_effect", "text": "Đã soi"
-                })).status_code == 422
                 action = await post(host, f"{base}/game/players/{night_id}/actions", {
                     "client_request_id": str(uuid4()), "action": "add_effect",
-                    "text": "Đã soi", "reason": "Theo yêu cầu"})
+                    "text": "Đã soi"})
                 assert action.status_code == 200
                 action_id = action.json()["event_id"]
                 assert (await night.get(f"{requests}/{first_id}/linkable-actions")).status_code == 403

@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_user, require_room_access, require_room_host
 from app.db.events import append_event
-from app.db.models import ContentRevision, GameEvent, Room, RoomMember, User
+from app.db.models import ContentRevision, GameEvent, Room, RoomMember, ScheduledAnnouncement, User
 from app.db.session import get_db
 from app.rooms import locked_host_room
+from app.scheduled_announcements import cancel_scheduled
 
 router = APIRouter(prefix="/api/rooms/{room_id}/game/events", tags=["game"])
 AnnouncementKind = Literal["general", "death", "revival", "attack", "role", "vote", "other"]
@@ -78,6 +79,7 @@ class AnnouncementInput(BaseModel):
     related_user_id: UUID | None = None
     source_user_id: UUID | None = None
     linked_event_id: UUID | None = None
+    publish_timing: Literal["immediate", "next_phase"] = "immediate"
 
     @model_validator(mode="after")
     def strip_text(self):
@@ -90,6 +92,20 @@ class AnnouncementInput(BaseModel):
 class AnnouncementOutput(BaseModel):
     event_id: UUID
     repeated: bool
+
+
+class ScheduledAnnouncementOutput(BaseModel):
+    id: UUID
+    kind: Literal["status", "custom"]
+    player_id: UUID | None
+    text: str
+    target_phase_type: Literal["day", "night"]
+    target_round_number: int
+    created_at: datetime
+
+
+class CancelScheduledInput(BaseModel):
+    client_request_id: UUID
 
 
 async def public_person(db: AsyncSession, room_id: UUID, user_id: UUID | None) -> dict | None:
@@ -126,6 +142,52 @@ class CorrectionOutput(BaseModel):
     event_id: UUID
     repeated: bool
     public_event_id: UUID | None
+
+
+@router.get("/scheduled", response_model=list[ScheduledAnnouncementOutput])
+async def pending_announcements(room_id: UUID, user: User = Depends(current_user),
+                                db: AsyncSession = Depends(get_db)) -> list[ScheduledAnnouncementOutput]:
+    await require_room_host(db, room_id, user.id)
+    room = await db.get(Room, room_id)
+    if room.status != "playing":
+        return []
+    next_phase = "night" if room.phase_type == "day" else "day"
+    next_round = room.round_number + 1 if room.phase_type == "day" else room.round_number
+    items = (await db.scalars(select(ScheduledAnnouncement).where(
+        ScheduledAnnouncement.room_id == room_id
+    ).order_by(ScheduledAnnouncement.created_at, ScheduledAnnouncement.id))).all()
+    return [ScheduledAnnouncementOutput(
+        id=item.id, kind=item.kind, player_id=item.player_id,
+        text=(f"{item.payload['display_name']}: "
+              f"{'hồi sinh' if item.payload['is_alive'] else 'đã chết'}"
+              if item.kind == "status" else item.payload["text"]),
+        target_phase_type=next_phase, target_round_number=next_round,
+        created_at=item.created_at) for item in items]
+
+
+@router.post("/scheduled/{scheduled_id}/cancel", response_model=AnnouncementOutput)
+async def cancel_pending_announcement(room_id: UUID, scheduled_id: UUID,
+                                      body: CancelScheduledInput,
+                                      user: User = Depends(current_user),
+                                      db: AsyncSession = Depends(get_db)) -> AnnouncementOutput:
+    room = await locked_host_room(db, room_id, user.id)
+    prior = await db.scalar(select(GameEvent).where(
+        GameEvent.room_id == room_id,
+        GameEvent.client_request_id == body.client_request_id))
+    if prior is not None:
+        if (prior.kind != "event.scheduled_announcement_cancelled"
+                or prior.payload.get("scheduled_event_id") != str(scheduled_id)):
+            raise HTTPException(status_code=409, detail="Mã yêu cầu đã dùng cho thao tác khác")
+        return AnnouncementOutput(event_id=prior.id, repeated=True)
+    if room.status != "playing":
+        raise HTTPException(status_code=409, detail="Trận không ở trạng thái đang chơi")
+    item = await db.get(ScheduledAnnouncement, scheduled_id)
+    if item is None or item.room_id != room_id:
+        raise HTTPException(status_code=404, detail="Không còn thông báo hẹn giờ")
+    event = await cancel_scheduled(db, item, user.id, "Quản trò hủy lịch",
+                                   client_request_id=body.client_request_id)
+    await db.commit()
+    return AnnouncementOutput(event_id=event.id, repeated=False)
 
 
 @router.get("/announcements", response_model=list[PublicAnnouncement])
@@ -185,9 +247,16 @@ async def publish_announcement(room_id: UUID, body: AnnouncementInput,
                "related_user_id": str(body.related_user_id) if body.related_user_id else None,
                "source_user_id": str(body.source_user_id) if body.source_user_id else None,
                "linked_event_id": str(body.linked_event_id) if body.linked_event_id else None}
+    if body.publish_timing == "next_phase":
+        request["publish_timing"] = "next_phase"
     prior = await db.scalar(select(GameEvent).where(
         GameEvent.room_id == room_id, GameEvent.client_request_id == body.client_request_id))
     if prior is not None:
+        if body.publish_timing == "next_phase":
+            if (prior.kind != "event.announcement_scheduled"
+                    or prior.actor_user_id != user.id or prior.payload.get("request") != request):
+                raise HTTPException(status_code=409, detail="Mã yêu cầu đã dùng cho thao tác khác")
+            return AnnouncementOutput(event_id=prior.id, repeated=True)
         if prior.kind == "event.custom_announcement" and request == {
             "text": prior.payload.get("text"), "kind": "general", "related_user_id": None,
             "source_user_id": None, "linked_event_id": None,
@@ -205,6 +274,16 @@ async def publish_announcement(room_id: UUID, body: AnnouncementInput,
         if (linked is None or linked.room_id != room_id or linked.actor_user_id != user.id
                 or linked.kind not in LINKABLE_ANNOUNCEMENT_KINDS):
             raise HTTPException(status_code=422, detail="Thao tác hoặc quyết định vote liên kết không hợp lệ")
+    if body.publish_timing == "next_phase":
+        decision = await append_event(db, room_id, user.id, "event.announcement_scheduled", "host",
+                                      {"request": request, "phase_type": room.phase_type,
+                                       "round_number": room.round_number},
+                                      client_request_id=body.client_request_id)
+        db.add(ScheduledAnnouncement(id=decision.id, room_id=room_id, kind="custom",
+                                     payload={"text": body.text, "kind": body.kind,
+                                              "related_player": related, "source_player": source}))
+        await db.commit()
+        return AnnouncementOutput(event_id=decision.id, repeated=False)
     decision = await append_event(db, room_id, user.id, "event.announcement_decided", "host",
                                   {"request": request}, client_request_id=body.client_request_id)
     event = await append_event(db, room_id, user.id, "event.custom_announcement", "room",

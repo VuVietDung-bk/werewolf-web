@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { api, jsonBody, type DeathNotice, type LinkableAnnouncementEvent, type PlayerBoardItem, type PublicAnnouncement, type PublicCorrection, type PublicVoteNotice, type Room } from '../api'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { api, jsonBody, type DeathNotice, type LinkableAnnouncementEvent, type PlayerBoardItem, type PublicAnnouncement, type PublicCorrection, type PublicVoteNotice, type Room, type ScheduledAnnouncement } from '../api'
 import { useRequestIds } from '../useRequestIds'
 import { useConfirmation } from '../useConfirmation'
 import StatusGlyph from './StatusGlyph'
@@ -73,34 +73,40 @@ export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
   const [corrections, setCorrections] = useState<PublicCorrection[]>([])
   const [voteNotices, setVoteNotices] = useState<PublicVoteNotice[]>([])
   const [pendingPublication, setPendingPublication] = useState<PlayerBoardItem[]>([])
+  const [scheduled, setScheduled] = useState<ScheduledAnnouncement[]>([])
   const [error, setError] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editCause, setEditCause] = useState('')
   const [newAnnouncement, setNewAnnouncement] = useState('')
   const [announcementKind, setAnnouncementKind] = useState<AnnouncementKind>('general')
+  const [publishTiming, setPublishTiming] = useState<'immediate' | 'next_phase'>('immediate')
   const [relatedUserId, setRelatedUserId] = useState('')
   const [sourceUserId, setSourceUserId] = useState('')
   const [linkedEventId, setLinkedEventId] = useState('')
   const [linkableEvents, setLinkableEvents] = useState<LinkableAnnouncementEvent[]>([])
   const [busy, setBusy] = useState(false)
+  const announcementDialog = useRef<HTMLDialogElement>(null)
   const requestIdFor = useRequestIds()
   const { ask, confirmationDialog } = useConfirmation()
   const dead = room.members.filter((member) => !member.public_is_alive)
   const phase = `${room.phase_type === 'night' ? 'Đêm' : 'Ngày'} ${room.round_number}`
 
   async function load() {
-    const [items, publicCorrections, publicVotes, publicAnnouncements, board] = await Promise.all([
+    const [items, publicCorrections, publicVotes, publicAnnouncements, board, pending] = await Promise.all([
       api<DeathNotice[]>(`/api/rooms/${room.id}/game/death-notices`),
       api<PublicCorrection[]>(`/api/rooms/${room.id}/game/events/public-corrections`),
       api<PublicVoteNotice[]>(`/api/rooms/${room.id}/votes/publications`),
       api<PublicAnnouncement[]>(`/api/rooms/${room.id}/game/events/announcements`),
       room.is_host ? api<PlayerBoardItem[]>(`/api/rooms/${room.id}/game/players`) : Promise.resolve([]),
+      room.is_host && room.status === 'playing'
+        ? api<ScheduledAnnouncement[]>(`/api/rooms/${room.id}/game/events/scheduled`) : Promise.resolve([]),
     ])
     setNotices(items)
     setCorrections(publicCorrections)
     setVoteNotices(publicVotes)
     setAnnouncements(publicAnnouncements)
     setPendingPublication(board.filter((item) => item.is_alive !== item.public_is_alive))
+    setScheduled(pending)
     setError('')
   }
 
@@ -112,8 +118,10 @@ export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
       api<PublicVoteNotice[]>(`/api/rooms/${room.id}/votes/publications`),
       api<PublicAnnouncement[]>(`/api/rooms/${room.id}/game/events/announcements`),
       room.is_host ? api<PlayerBoardItem[]>(`/api/rooms/${room.id}/game/players`) : Promise.resolve([]),
-    ]).then(([items, publicCorrections, publicVotes, publicAnnouncements, board]) => {
-      if (active) { setNotices(items); setCorrections(publicCorrections); setVoteNotices(publicVotes); setAnnouncements(publicAnnouncements); setPendingPublication(board.filter((item) => item.is_alive !== item.public_is_alive)); setError('') }
+      room.is_host && room.status === 'playing'
+        ? api<ScheduledAnnouncement[]>(`/api/rooms/${room.id}/game/events/scheduled`) : Promise.resolve([]),
+    ]).then(([items, publicCorrections, publicVotes, publicAnnouncements, board, pending]) => {
+      if (active) { setNotices(items); setCorrections(publicCorrections); setVoteNotices(publicVotes); setAnnouncements(publicAnnouncements); setPendingPublication(board.filter((item) => item.is_alive !== item.public_is_alive)); setScheduled(pending); setError('') }
     }).catch((cause) => {
       if (active) setError(cause instanceof Error ? cause.message : 'Không tải được thông báo.')
     })
@@ -139,12 +147,16 @@ export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
       related ? `Người liên quan: Ghế ${related.seat_number} · ${related.display_name}` : '',
       source ? `Nguồn gây ra: Ghế ${source.seat_number} · ${source.display_name}` : '',
       text].filter(Boolean).join('\n')
-    if (!await ask({ title: 'Đăng thông báo', phase, subject: related?.display_name ?? room.name,
-      audience: 'Toàn bộ thành viên phòng', publicText,
-      note: 'Liên kết thao tác/vote chỉ dùng cho nhật ký; chi tiết kín của liên kết không hiện cho người chơi trong trận.',
-      confirmLabel: 'Đăng thông báo' })) return
+    const deferred = publishTiming === 'next_phase'
+    if (!await ask({ title: deferred ? 'Hẹn thông báo' : 'Đăng thông báo', phase,
+      subject: related?.display_name ?? room.name,
+      audience: deferred ? 'Toàn phòng ở lần chuyển pha kế tiếp' : 'Toàn bộ thành viên phòng', publicText,
+      note: deferred ? 'Nội dung chỉ quản trò thấy cho đến khi chuyển ngày hoặc đêm tiếp theo. Có thể hủy lịch trước lúc đó.'
+        : 'Liên kết thao tác/vote chỉ dùng cho nhật ký; chi tiết kín của liên kết không hiện cho người chơi trong trận.',
+      confirmLabel: deferred ? 'Hẹn thông báo' : 'Đăng thông báo' })) return
     const payload = { text, kind: announcementKind, related_user_id: relatedUserId || null,
-      source_user_id: sourceUserId || null, linked_event_id: linkedEventId || null }
+      source_user_id: sourceUserId || null, linked_event_id: linkedEventId || null,
+      publish_timing: publishTiming }
     const request = requestIdFor({ room_id: room.id, announcement: payload })
     setBusy(true)
     setError('')
@@ -157,13 +169,37 @@ export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
       request.acknowledge()
       setNewAnnouncement('')
       setAnnouncementKind('general')
+      setPublishTiming('immediate')
       setRelatedUserId('')
       setSourceUserId('')
       setLinkedEventId('')
       await Promise.all([load(), onRoomChanged()])
+      announcementDialog.current?.close()
     } catch (cause) {
-      setError(sent ? 'Đã đăng thông báo nhưng chưa tải lại được. Tải lại tab để kiểm tra.'
-        : cause instanceof Error ? cause.message : 'Không đăng được thông báo.')
+      setError(sent ? 'Đã ghi thông báo nhưng chưa tải lại được. Tải lại tab để kiểm tra.'
+        : cause instanceof Error ? cause.message : 'Không ghi được thông báo.')
+    } finally { setBusy(false) }
+  }
+
+  async function cancelScheduled(item: ScheduledAnnouncement) {
+    if (busy || !await ask({ title: 'Hủy thông báo hẹn giờ', phase,
+      subject: item.text, audience: 'Chỉ quản trò',
+      note: 'Thông báo sẽ không được đăng khi chuyển pha. Quyết định hủy được lưu vào nhật ký.',
+      confirmLabel: 'Hủy lịch' })) return
+    const request = requestIdFor({ room_id: room.id, scheduled_id: item.id, action: 'cancel' })
+    setBusy(true)
+    setError('')
+    let sent = false
+    try {
+      await api(`/api/rooms/${room.id}/game/events/scheduled/${item.id}/cancel`, {
+        method: 'POST', body: jsonBody({ client_request_id: request.id }),
+      })
+      sent = true
+      request.acknowledge()
+      await Promise.all([load(), onRoomChanged()])
+    } catch (cause) {
+      setError(sent ? 'Đã hủy lịch nhưng chưa tải lại được. Tải lại tab để kiểm tra.'
+        : cause instanceof Error ? cause.message : 'Không hủy được lịch.')
     } finally { setBusy(false) }
   }
 
@@ -203,6 +239,17 @@ export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
     <span className="eyebrow">THÔNG TIN ĐÃ CÔNG BỐ</span>
     <h2 id="death-notices-title">Thông báo</h2>
     <p>Quản trò đăng diễn biến công khai tại đây. Trạng thái chết/hồi sinh và kết quả vote chỉ xuất hiện khi đã công bố.</p>
+    {room.is_host && room.status === 'playing' && <button type="button" className="button-secondary announcement-trigger"
+      onClick={() => announcementDialog.current?.showModal()}>Đăng thông báo</button>}
+    {room.is_host && room.status === 'playing' && scheduled.length > 0 && <aside className="pending-publications">
+      <h3>Đã hẹn khi chuyển pha ({scheduled.length})</h3>
+      <p>Chỉ quản trò thấy nội dung này. Thông báo sẽ hiện cho mọi người ngay khi chuyển sang ngày hoặc đêm kế tiếp.</p>
+      <ul>{scheduled.map((item) => <li key={item.id} className="scheduled-announcement-row">
+        <span>{item.text} · Sang {item.target_phase_type === 'day' ? 'Ngày' : 'Đêm'} {item.target_round_number}</span>
+        <button type="button" className="button-secondary" disabled={busy}
+          onClick={() => void cancelScheduled(item)}>Hủy lịch</button>
+      </li>)}</ul>
+    </aside>}
     {room.is_host && room.status === 'playing' && pendingPublication.length > 0 && <aside className="pending-publications">
       <h3>Trạng thái kín hoặc chưa công bố ({pendingPublication.length})</h3>
       <p>Chỉ quản trò thấy danh sách này. Khi giữ kín hoặc bỏ qua thông báo, người chơi vẫn thấy trạng thái công khai trước đó.</p>
@@ -210,12 +257,15 @@ export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
         <NoticeGlyph kind="sealed" size={20} />
         <span>Ghế {item.seat_number} · {item.display_name}: {item.is_alive ? 'đã hồi sinh' : 'đã chết'} · {
           item.publication_disposition === 'held' ? 'đang giữ kín'
-            : item.publication_disposition === 'skipped' ? 'đã bỏ qua thông báo' : 'chờ quyết định'}</span>
+            : item.publication_disposition === 'skipped' ? 'đã bỏ qua thông báo'
+              : item.publication_disposition === 'scheduled' ? 'đã hẹn chuyển pha' : 'chờ quyết định'}</span>
       </li>)}</ul>
       <button type="button" className="button-secondary" onClick={onOpenBoard}>Mở Bàn quản trò để công bố</button>
     </aside>}
-    {room.is_host && room.status === 'playing' && <form className="stack-form public-announcement-form" onSubmit={(event) => void publishAnnouncement(event)}>
-      <h3>Đăng thông báo công khai</h3>
+    {room.is_host && room.status === 'playing' && <dialog ref={announcementDialog} className="settings-dialog announcement-dialog" aria-labelledby="announcement-dialog-title">
+      <div className="settings-dialog-header"><h2 id="announcement-dialog-title">Đăng thông báo công khai</h2>
+        <button type="button" className="button-secondary" onClick={() => announcementDialog.current?.close()} aria-label="Đóng thông báo">✕</button></div>
+      <form className="stack-form public-announcement-form" onSubmit={(event) => void publishAnnouncement(event)}>
       <label htmlFor="announcement-kind">Loại sự kiện</label>
       <select id="announcement-kind" value={announcementKind}
         onChange={(event) => setAnnouncementKind(event.target.value as AnnouncementKind)}>
@@ -246,8 +296,16 @@ export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
       <textarea id="new-announcement" maxLength={2000} value={newAnnouncement}
         onChange={(event) => setNewAnnouncement(event.target.value)}
         placeholder="Ví dụ: Một sự kiện bất ngờ vừa xảy ra trong làng." />
-      <button disabled={busy || !newAnnouncement.trim()}>Xem trước và đăng</button>
-    </form>}
+      <label htmlFor="announcement-timing">Thời điểm công bố</label>
+      <select id="announcement-timing" value={publishTiming}
+        onChange={(event) => setPublishTiming(event.target.value as 'immediate' | 'next_phase')}>
+        <option value="immediate">Đăng ngay</option>
+        <option value="next_phase">Khi chuyển ngày/đêm tiếp theo</option>
+      </select>
+      <button disabled={busy || !newAnnouncement.trim()}>
+        {publishTiming === 'next_phase' ? 'Xem trước và hẹn' : 'Xem trước và đăng'}</button>
+      {error && <p className="form-message" role="alert">{error}</p>}
+    </form></dialog>}
     <h3>Đang được công bố là đã chết</h3>
     {dead.length ? <ul className="public-dead-list">{dead.map((member) => <li key={member.user_id}>
       <strong>Ghế {member.seat_number} · {member.display_name}</strong>

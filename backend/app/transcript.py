@@ -143,7 +143,7 @@ def event_reason(payload: dict) -> str | None:
 def event_links(payload: dict) -> list[str]:
     request = payload.get("request")
     values = [payload.get(key) for key in ("source_event_id", "status_event_id", "public_event_id",
-                                            "linked_event_id")]
+                                            "linked_event_id", "scheduled_event_id")]
     if isinstance(request, dict):
         values.extend([request.get("source_event_id"), request.get("linked_event_id"),
                        *(request.get("linked_event_ids") or [])])

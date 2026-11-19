@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { api, jsonBody, type Room, type VoteRound } from '../api'
+import { api, jsonBody, type Room, type ScheduledAnnouncement, type VoteRound } from '../api'
 import { useRequestIds } from '../useRequestIds'
 import { useConfirmation } from '../useConfirmation'
 
@@ -84,7 +84,7 @@ export default function GameControls({ room, onRoomChanged }: Props) {
     const reason = resultReason.trim()
     if (!await ask({ title: 'Kết thúc trận', phase, subject: room.name,
       audience: 'Toàn bộ thành viên phòng', publicText: `${label}\n${reason}`,
-      note: 'Sau khi kết thúc, quản trò không thể tiếp tục xử lý trận.',
+      note: 'Sau khi kết thúc, quản trò không thể tiếp tục xử lý trận. Thông báo còn hẹn đến lần chuyển pha sau sẽ bị hủy.',
       confirmLabel: 'Kết thúc và công bố' })) return
     await command('finish', { result_label: label, result_reason: reason })
   }
@@ -94,9 +94,18 @@ export default function GameControls({ room, onRoomChanged }: Props) {
   async function advance() {
     if (busy) return
     if (!await voteClosedForTransition()) return
+    let scheduled: ScheduledAnnouncement[]
+    try {
+      scheduled = await api<ScheduledAnnouncement[]>(`/api/rooms/${room.id}/game/events/scheduled`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không tải được thông báo đã hẹn. Thử lại trước khi chuyển pha.')
+      return
+    }
     if (!await ask({ title: 'Chuyển pha', phase, subject: room.name,
       audience: 'Toàn bộ thành viên phòng', publicText: `Pha hiện tại kết thúc. Trận chuyển sang ${next}.`,
-      note: 'Kiểm tra các quyết định và thông báo cần công bố trước khi tiếp tục.',
+      note: scheduled.length
+        ? `${scheduled.length} thông báo đã hẹn sẽ được đăng ngay khi chuyển sang ${next}: ${scheduled.slice(0, 5).map((item) => item.text.slice(0, 80)).join('; ')}${scheduled.length > 5 ? '; …' : ''}`
+        : 'Không có thông báo hẹn giờ đang chờ.',
       confirmLabel: `Chuyển sang ${next}` })) return
     await command('advance', {
       expected_phase_type: room.phase_type, expected_round_number: room.round_number,
