@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,20 +46,29 @@ class HostEvent(BaseModel):
     created_at: datetime
 
 
-class PublicCorrection(BaseModel):
+class PublicMetadata(BaseModel):
+    @model_serializer(mode='wrap')
+    def safe_metadata(self,handler):
+        data=handler(self)
+        for key in ('sequence','source_sequence'):
+            if data.get(key) is None:data.pop(key,None)
+        return data
+
+
+class PublicCorrection(PublicMetadata):
     id: UUID
-    sequence: int
+    sequence: int | None = None
     source_event_id: UUID
-    source_sequence: int
+    source_sequence: int | None = None
     source_kind: str
     text: str
     created_at: datetime
     edited_at: datetime | None
 
 
-class PublicAnnouncement(BaseModel):
+class PublicAnnouncement(PublicMetadata):
     id: UUID
-    sequence: int
+    sequence: int | None = None
     phase_type: str
     round_number: int
     text: str
@@ -193,7 +202,9 @@ async def cancel_pending_announcement(room_id: UUID, scheduled_id: UUID,
 @router.get("/announcements", response_model=list[PublicAnnouncement])
 async def public_announcements(room_id: UUID, user: User = Depends(current_user),
                                db: AsyncSession = Depends(get_db)) -> list[PublicAnnouncement]:
-    await require_room_access(db, room_id, user.id)
+    host=await require_room_access(db, room_id, user.id)
+    room=await db.get(Room,room_id)
+    show_position=host or room.status=='finished'
     events = (await db.scalars(select(GameEvent).where(
         GameEvent.room_id == room_id, GameEvent.kind == "event.custom_announcement",
         GameEvent.visibility == "room",
@@ -203,7 +214,7 @@ async def public_announcements(room_id: UUID, user: User = Depends(current_user)
                                       ContentRevision.source_event_id.in_([event.id for event in events]))
     )).all()} if events else {}
     return [PublicAnnouncement(
-        id=event.id, sequence=event.sequence,
+        id=event.id, sequence=event.sequence if show_position else None,
         phase_type=event.payload["phase_type"], round_number=event.payload["round_number"],
         kind=event.payload.get("kind", "general"),
         related_player=event.payload.get("related_player"),
@@ -312,7 +323,9 @@ async def host_events(room_id: UUID, user: User = Depends(current_user),
 @router.get("/public-corrections", response_model=list[PublicCorrection])
 async def public_corrections(room_id: UUID, user: User = Depends(current_user),
                              db: AsyncSession = Depends(get_db)) -> list[PublicCorrection]:
-    await require_room_access(db, room_id, user.id)
+    host=await require_room_access(db, room_id, user.id)
+    room=await db.get(Room,room_id)
+    show_position=host or room.status=='finished'
     events = (await db.scalars(select(GameEvent).where(
         GameEvent.room_id == room_id, GameEvent.kind == "event.public_correction",
         GameEvent.visibility == "room",
@@ -321,9 +334,9 @@ async def public_corrections(room_id: UUID, user: User = Depends(current_user),
         select(ContentRevision).where(ContentRevision.room_id == room_id,
                                       ContentRevision.source_event_id.in_([event.id for event in events]))
     )).all()} if events else {}
-    return [PublicCorrection(id=event.id, sequence=event.sequence,
+    return [PublicCorrection(id=event.id, sequence=event.sequence if show_position else None,
                              source_event_id=UUID(event.payload["source_event_id"]),
-                             source_sequence=event.payload["source_sequence"],
+                             source_sequence=event.payload["source_sequence"] if show_position else None,
                              source_kind=event.payload["source_kind"],
                              text=(revisions[event.id].current_text
                                    if event.id in revisions and revisions[event.id].edited_at

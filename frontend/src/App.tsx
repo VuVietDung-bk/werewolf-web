@@ -6,6 +6,9 @@ import DemoSwitcher from './components/DemoSwitcher'
 import { useRequestIds } from './useRequestIds'
 import { useConfirmation } from './useConfirmation'
 import { groupRoomSeries, latestAccessibleSuccessor } from './roomSeries'
+import RoomLayout from './components/RoomLayout'
+import { clearChatSession } from './components/chat/state'
+import { normalizeRoute, readRoomRoute, routeHash, type RoomRoute, type View } from './roomNavigation'
 
 const RolePanel = lazy(() => import('./components/RolePanel'))
 const GameControls = lazy(() => import('./components/GameControls'))
@@ -17,35 +20,9 @@ const RoleRequestsPanel = lazy(() => import('./components/RoleRequestsPanel'))
 const TranscriptPanel = lazy(() => import('./components/TranscriptPanel'))
 
 type ApiStatus = 'loading' | 'online' | 'offline'
-type View = 'home' | 'lobby' | 'catalog' | 'manage' | 'distribution' | 'assignment' | 'game' | 'chat' | 'requests' | 'vote' | 'control' | 'dead' | 'transcript'
-const VIEWS: View[] = ['home', 'lobby', 'catalog', 'manage', 'distribution', 'assignment', 'game', 'chat', 'requests', 'vote', 'control', 'dead', 'transcript']
 const ROOM_KEY = 'ma-soi-active-room'
 const showAssetDemo = new URLSearchParams(window.location.search).has('asset-demo')
-const readView = (): View => {
-  const value = window.location.hash.slice(1)
-  if (value === 'private') {
-    window.history.replaceState(null, '', '#chat')
-    return 'chat'
-  }
-  return VIEWS.includes(value as View) ? value as View : 'home'
-}
-const roomViews = (room: Room): View[] => [
-  ...(['playing', 'finished'].includes(room.status) ? ['game'] as View[] : ['lobby'] as View[]),
-  'chat',
-  ...(['playing', 'finished'].includes(room.status) ? ['requests'] as View[] : []),
-  'catalog',
-  ...(['open', 'closed'].includes(room.status) && room.is_host ? ['manage'] as View[] : []),
-  ...((['open', 'closed'].includes(room.status) && room.is_host) || room.status === 'drafting'
-    ? ['distribution'] as View[] : []),
-  ...(room.status === 'assigned' || (!room.is_host && ['playing', 'finished'].includes(room.status))
-    ? ['assignment'] as View[] : []),
-  ...(['playing', 'finished'].includes(room.status) ? ['dead'] as View[] : []),
-  ...(['playing', 'finished'].includes(room.status) ? ['vote'] as View[] : []),
-  ...(['playing', 'finished'].includes(room.status) && room.is_host ? ['control'] as View[] : []),
-  ...(room.status === 'finished' ? ['transcript'] as View[] : []),
-]
-const roomDefaultView = (room: RoomSummary): View => ['playing', 'finished'].includes(room.status) ? 'game'
-  : room.status === 'assigned' ? 'assignment' : room.status === 'drafting' ? 'distribution' : 'lobby'
+const roomDefaultView = (_room: RoomSummary): View => 'chat'
 const roomStageLabels: Record<string, string> = {
   open: 'Sảnh chờ', closed: 'Đã đóng đăng ký', drafting: 'Đang chọn role',
   assigned: 'Đã phát role', playing: 'Đang chơi', finished: 'Đã kết thúc',
@@ -71,18 +48,19 @@ export default function App() {
   const [message, setMessage] = useState('')
   const [kickTarget, setKickTarget] = useState<RoomMember | null>(null)
   const [kickReason, setKickReason] = useState('')
-  const [view, setView] = useState<View>(readView)
+  const [route, setRoute] = useState<RoomRoute>(readRoomRoute)
+  const view = route.view
+  const inRoom = Boolean(room && view !== 'home')
   const [ready, setReady] = useState(false)
-  const navigationRef = useRef<HTMLElement>(null)
   const kickDialogRef = useRef<HTMLDialogElement>(null)
   const refreshRoomRef = useRef<() => void>(() => {})
 
-  function navigate(next: View, replace = false) {
-    const hash = `#${next}`
+  function navigate(next: View, replace = false, selection?: RoomRoute['selection']) {
+    const value = room ? normalizeRoute({ view: next, selection }, room) : { view: next, selection }
+    const hash = routeHash(value)
     if (replace) window.history.replaceState(null, '', hash)
     else if (window.location.hash !== hash) window.location.hash = hash
-    setView(next)
-    window.scrollTo({ top: 0, behavior: 'instant' })
+    setRoute(value)
   }
 
   async function loadRooms(preferredId?: string): Promise<Room | null> {
@@ -102,19 +80,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    const syncView = () => setView(readView())
+    const syncView = () => setRoute(readRoomRoute())
     window.addEventListener('hashchange', syncView)
     return () => window.removeEventListener('hashchange', syncView)
   }, [])
-
-  useEffect(() => {
-    const nav = navigationRef.current
-    const active = nav?.querySelector<HTMLElement>('button.active')
-    if (nav && active && nav.scrollWidth > nav.clientWidth) {
-      nav.scrollLeft += active.getBoundingClientRect().left - nav.getBoundingClientRect().left
-        - (nav.clientWidth - active.clientWidth) / 2
-    }
-  }, [view, room?.id, room?.status])
 
   useEffect(() => {
     let alive = true
@@ -143,8 +112,16 @@ export default function App() {
   useEffect(() => {
     if (!ready || view === 'home') return
     if (!room) { navigate('home', true); return }
-    if (!roomViews(room).includes(view)) navigate(roomDefaultView(room), true)
-  }, [ready, room?.id, room?.status, room?.is_host, view])
+    const normalized = normalizeRoute(route, room)
+    const hash = routeHash(normalized)
+    if (window.location.hash !== hash) window.history.replaceState(null, '', hash)
+    if (routeHash(route) !== hash) setRoute(normalized)
+  }, [ready, room?.id, room?.status, room?.is_host, route])
+
+  useEffect(() => {
+    document.body.classList.toggle('in-room', inRoom)
+    return () => document.body.classList.remove('in-room')
+  }, [inRoom])
 
   useEffect(() => {
     if (!room) return
@@ -170,6 +147,7 @@ export default function App() {
         if (!active) return
         void api<RoomSummary[]>('/api/rooms/mine').then((list) => {
           if (!active || list.some((item) => item.id === roomId)) return
+          clearChatSession()
           setRooms(list)
           setRoom(null)
           localStorage.removeItem(ROOM_KEY)
@@ -191,66 +169,6 @@ export default function App() {
       refreshRoomRef.current = () => {}
     }
   }, [room?.id, room?.version])
-
-  useEffect(() => {
-    if (!room || !identity || room.status !== 'playing' || view === 'chat') return
-    const roomId = room.id
-    const cursorKey = `ma-soi-room-live:${roomId}:${identity.id}`
-    let cursor = 0
-    try { cursor = Number(window.sessionStorage.getItem(cursorKey)) || 0 } catch { /* use fresh cursor */ }
-    let active = true
-    let socket: WebSocket | null = null
-    let reconnectTimer: number | null = null
-    let refreshTimer: number | null = null
-    let attempts = 0
-    const saveCursor = (sequence: number) => {
-      cursor = sequence
-      try { window.sessionStorage.setItem(cursorKey, String(sequence)) } catch { /* keep in memory */ }
-    }
-    const refreshSoon = () => {
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
-      refreshTimer = window.setTimeout(() => { refreshRoomRef.current(); refreshTimer = null }, 80)
-    }
-    const reconnect = () => {
-      if (!active) return
-      reconnectTimer = window.setTimeout(connect, Math.min(10000, 500 * 2 ** Math.min(attempts++, 5)))
-    }
-    function connect() {
-      if (!active) return
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const suffix = cursor > 0 ? `?after_sequence=${cursor}` : ''
-      try { socket = new WebSocket(`${protocol}//${window.location.host}/api/rooms/${roomId}/live${suffix}`) }
-      catch { reconnect(); return }
-      socket.onmessage = (message) => {
-        let notice: { type?: string; cursor?: number; sequence?: number; kind?: string }
-        try { notice = JSON.parse(message.data) as typeof notice } catch { return }
-        if (!active) return
-        if (notice.type === 'ready' && Number.isSafeInteger(notice.cursor)) {
-          saveCursor(Math.max(cursor, notice.cursor!))
-          attempts = 0
-          refreshSoon()
-          return
-        }
-        if (notice.type !== 'game.event' || !Number.isSafeInteger(notice.sequence) || !notice.kind) return
-        saveCursor(Math.max(cursor, notice.sequence!))
-        if (['game.', 'room.', 'member.', 'player.', 'event.', 'vote.'].some((prefix) => notice.kind!.startsWith(prefix))) {
-          refreshSoon()
-        }
-      }
-      socket.onclose = (event) => {
-        if (!active || [4400, 4401, 4403, 4404].includes(event.code)) return
-        reconnect()
-      }
-      socket.onerror = () => { /* timed room refresh remains the fallback */ }
-    }
-    connect()
-    return () => {
-      active = false
-      socket?.close()
-      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
-    }
-  }, [room?.id, room?.status, identity?.id, view])
 
   useEffect(() => {
     if (!room?.next_room_id) return
@@ -283,12 +201,25 @@ export default function App() {
   function leaveAccount() {
     void run(async () => {
       await api<void>('/api/auth/logout', { method: 'POST' })
+      clearChatSession()
       setIdentity(null)
       setRooms([])
       setRoom(null)
       localStorage.removeItem(ROOM_KEY)
       navigate('home')
     })
+  }
+
+  function accessLost(code:number) {
+    clearChatSession()
+    setRoom(null)
+    localStorage.removeItem(ROOM_KEY)
+    if(code===4401){setIdentity(null);setRooms([]);setMessage('Phiên đăng nhập đã hết hạn. Vui lòng vào lại.')}
+    else {
+      setMessage('Bạn không còn quyền vào phòng này.')
+      void api<RoomSummary[]>('/api/rooms/mine').then(setRooms).catch(()=>{})
+    }
+    navigate('home')
   }
 
   function createRoom(event: FormEvent<HTMLFormElement>) {
@@ -299,7 +230,7 @@ export default function App() {
       })
       setNewRoomName('')
       await loadRooms(created.id)
-      navigate('lobby')
+      navigate('chat')
     })
   }
 
@@ -312,7 +243,7 @@ export default function App() {
       setJoinCode('')
       setConsented(false)
       await loadRooms(joined.id)
-      navigate('lobby')
+      navigate('chat')
     })
   }
 
@@ -381,7 +312,7 @@ export default function App() {
     void run(async () => {
       const next = await api<Room>(`/api/rooms/${previous.id}/game/next`, { method: 'POST' })
       await loadRooms(next.id)
-      navigate('lobby')
+      navigate('chat')
     })
   }
 
@@ -459,32 +390,13 @@ export default function App() {
   }) : []
   const activeRoom = rooms.find((item) => !['finished', 'cancelled'].includes(item.status))
   const roomGroups = groupRoomSeries(rooms)
-  const selectedGroup = roomGroups.find((group) => room &&
-    (group.latest.id === room.id || group.history.some((item) => item.id === room.id)))
-  const selectedGameNumber = selectedGroup && room
-    ? [...selectedGroup.history, selectedGroup.latest].findIndex((item) => item.id === room.id) + 1 : 0
   const latestNextRoom = room ? latestAccessibleSuccessor(room, rooms) : null
-  const tabs: { view: View; label: string }[] = [
-    { view: 'home', label: 'Trang chủ' },
-    ...(room ? roomViews(room).map((item) => ({ view: item, label: {
-      lobby: 'Sảnh chờ', catalog: 'Danh mục role', manage: 'Thiết lập role', distribution: room.status === 'drafting' ? 'Chọn role' : 'Phát role',
-      assignment: room.is_host ? 'Phân role' : 'Role của tôi', game: 'Trận đấu', chat: 'Chat', requests: 'Yêu cầu role', vote: 'Vote', control: 'Bàn quản trò', dead: 'Thông báo', transcript: 'Nhật ký sau trận', home: 'Trang chủ',
-    }[item] })) : []),
-  ]
-
-  return <main className="shell">
-    <header className="masthead">
+  return <main className={inRoom ? 'shell shell-room' : 'shell'}>
+    {!inRoom && <header className="masthead">
       <span className="brand">MA SÓI · HỒ SƠ LÀNG</span>
       <span className="edition">Bản thử nghiệm · Ma Sói do quản trò điều hành</span>
-    </header>
-
-    <DemoSwitcher identity={identity} />
-
-    <nav ref={navigationRef} className="screen-nav" aria-label="Điều hướng màn hình">
-      <span className="screen-nav-context">{room?.name ?? 'Ma Sói'}</span>
-      {tabs.map((tab) => <button key={tab.view} type="button" className={view === tab.view ? 'active' : ''}
-        aria-current={view === tab.view ? 'page' : undefined} onClick={() => navigate(tab.view)}>{tab.label}</button>)}
-    </nav>
+    </header>}
+    {!inRoom && <DemoSwitcher identity={identity} />}
 
     {view === 'home' && <>
     <section className="hero" aria-labelledby="page-title">
@@ -564,18 +476,10 @@ export default function App() {
     </>}
     </>}
 
-    {room && view !== 'home' && <>
-      <header className="room-context">
-        <div><span className="eyebrow">{selectedGroup && selectedGroup.history.length > 0 ? `VÁN ${selectedGameNumber} · ` : ''}{room.status === 'finished' ? 'TRẬN ĐÃ KẾT THÚC' : room.status === 'playing' ? `${room.phase_type === 'night' ? 'ĐÊM' : 'NGÀY'} ${room.round_number}${room.is_paused ? ' · TẠM DỪNG' : ''}` : room.status === 'assigned' ? 'ROLE ĐÃ ĐƯỢC PHÁT' : room.status === 'drafting' ? 'ĐANG CHỌN ROLE' : room.status === 'open' ? 'ĐANG NHẬN NGƯỜI CHƠI' : 'ĐÃ ĐÓNG ĐĂNG KÝ'}</span>
-          <h1>{room.name}</h1><p>Quản trò: <strong>{room.host_name}</strong> · {room.members.length}/{room.seat_limit} ghế</p></div>
-        <div className="room-context-actions">
-          {view !== 'game' && latestNextRoom &&
-            <button type="button" onClick={enterNextRoom} disabled={busy}>
-              {latestNextRoom.status === 'finished' ? 'Xem ván mới nhất' : 'Vào ván hiện tại'}</button>}
-          <button type="button" className="button-secondary" onClick={refreshRoom} disabled={busy}>Cập nhật phòng</button>
-        </div>
-      </header>
-      <Suspense fallback={<p className="screen-loading" role="status">Đang tải màn hình…</p>}>
+    {room && identity && view !== 'home' && <RoomLayout key={`${room.id}:${identity.id}`} room={room} userId={identity.id} route={route}
+      onNavigate={(next, selection) => navigate(next, false, selection)} onRefresh={refreshRoom} onKick={openKick} onAccessLost={accessLost} onRealtimeRefresh={()=>refreshRoomRef.current()}>
+      <Suspense fallback={<div className="room-skeleton" role="status" aria-label="Đang tải màn hình"><span /><span /><span /></div>}>
+      {view === 'lobby' && room.status === 'finished' && <p><button type="button" onClick={() => navigate('game')}>Kết quả, rời phòng hoặc mở ván mới</button></p>}
       {view === 'lobby' && <section className="lobby" aria-labelledby="lobby-title">
         <h2 id="lobby-title">Sảnh chờ</h2>
         <div className="invite-line"><span>Mã mời</span><strong>{room.code}</strong>
@@ -645,17 +549,17 @@ export default function App() {
               onClick={() => openKick(member)}>Kick</button>}
         </li>)}</ol>
       </section>}
-      {view === 'vote' && <VotePanel room={room} onRoomChanged={async () => { await loadRooms(room.id) }} />}
-      {view === 'chat' && identity && <ChatPanel key={`${room.id}:${identity.id}`} room={room} userId={identity.id}
-        onRoomChanged={async () => { await loadRooms(room.id) }} />}
+      {view === 'vote' && (['playing', 'finished'].includes(room.status) ? <VotePanel room={room} onRoomChanged={async () => { await loadRooms(room.id) }} /> : <p className="room-empty">Chưa có vòng vote. Quản trò có thể mở vote khi bắt đầu Ngày 0.</p>)}
+      {view === 'chat' && identity && <ChatPanel key={`${room.id}:${identity.id}`} room={room} userId={identity.id} selection={route.selection ?? { channel: 'common' }} embedded />}
       {view === 'requests' && <RoleRequestsPanel key={room.id} room={room} />}
-      {view === 'dead' && <DeathNotices room={room} onRoomChanged={async () => { await loadRooms(room.id) }}
-        onOpenBoard={() => navigate('control')} />}
+      {view === 'dead' && (['playing', 'finished'].includes(room.status) ? <DeathNotices room={room} onRoomChanged={async () => { await loadRooms(room.id) }}
+        onOpenBoard={() => navigate('control')} /> : <p className="room-empty">Chưa có thông báo. Kênh sẽ lưu những nội dung quản trò công bố trong ván.</p>)}
       {view === 'control' && room.is_host && <HostPlayerBoard key={room.id} room={room}
         onRoomChanged={async () => { await loadRooms(room.id) }} />}
       {view === 'transcript' && room.status === 'finished' && <TranscriptPanel room={room} />}
       </Suspense>
-    </>}
+
+    </RoomLayout>}
 
     {message && <p className="form-message global-message" role="alert">{message}</p>}
     {showAssetDemo && <details className="asset-demo" open><summary>Thử asset và ảnh dự phòng</summary>
@@ -666,7 +570,7 @@ export default function App() {
           <h3>Ảnh thiếu</h3><p>Nhãn vẫn hiện khi file lỗi hoặc vắng mặt.</p></article>
       </div>
     </details>}
-    <p className="footnote">Các thao tác còn lại sẽ được thêm theo checklist của dự án.</p>
+    {!inRoom && <p className="footnote">Ma Sói do quản trò điều hành.</p>}
     <dialog ref={kickDialogRef} className="confirmation-dialog" aria-labelledby="kick-title"
       onClose={() => setKickTarget(null)}>
       {kickTarget && <form onSubmit={submitKick}>

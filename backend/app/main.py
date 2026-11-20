@@ -1,4 +1,5 @@
 from uuid import UUID
+from contextlib import asynccontextmanager
 import hmac
 import logging
 import os
@@ -18,6 +19,13 @@ from app.db.models import Session, User
 from app.db.session import get_db, session_factory
 from app.rooms import router as rooms_router
 from app.roles import router as roles_router
+from app.channels import router as channels_router
+from app.chat_timeline import router as chat_timeline_router
+from app.chat_cursors import cursor_codec
+from app.room_sync import router as room_sync_router
+from app.chat_reads import router as chat_reads_router
+from app.reactions import router as reactions_router
+from app.live_v2 import router as live_v2_router, hub as delivery_hub
 from app.draft import router as draft_router
 from app.icons import router as icons_router
 from app.player_state import notices_router, router as player_state_router
@@ -34,7 +42,13 @@ from app.live import hub
 from app.observability import gauge, http_metrics
 from app.outbox_worker import HEARTBEAT_KEY, redis_client
 
-app = FastAPI(title="Ma Sói Web API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    cursor_codec()
+    yield
+
+
+app = FastAPI(title="Ma Sói Web API", version="0.1.0", lifespan=lifespan)
 # Uvicorn's default access log includes raw URL query strings (transcript search
 # can contain private chat). Keep only route templates in our own access log.
 logging.getLogger("uvicorn.access").disabled = True
@@ -64,6 +78,12 @@ app.include_router(event_corrections_router)
 app.include_router(content_revisions_router)
 app.include_router(votes_router)
 app.include_router(chat_router)
+app.include_router(channels_router)
+app.include_router(chat_timeline_router)
+app.include_router(room_sync_router)
+app.include_router(chat_reads_router)
+app.include_router(reactions_router)
+app.include_router(live_v2_router)
 app.include_router(live_router)
 app.include_router(role_requests_router)
 app.include_router(transcript_router)
@@ -120,8 +140,8 @@ async def metrics(request: Request) -> Response:
         raise HTTPException(status_code=404)
     output = http_metrics.render()
     output += gauge("ma_soi_websocket_connections", "Active room WebSocket connections in this API process",
-                    sum(len(feed.connections) for feed in hub.feeds.values()))
-    output += gauge("ma_soi_websocket_rooms", "Room feeds in this API process", len(hub.feeds))
+                    sum(len(feed.connections) for source in (hub, delivery_hub) for feed in source.feeds.values()))
+    output += gauge("ma_soi_websocket_rooms", "Room feeds in this API process", len(hub.feeds.keys() | delivery_hub.feeds.keys()))
     try:
         async with session_factory()() as db:
             row = (await db.execute(text("""

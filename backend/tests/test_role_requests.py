@@ -1,5 +1,7 @@
 """Free-text role requests obey live role, phase, privacy, and rate rules."""
 
+from legacy_read_services import service_get
+
 import asyncio
 from contextlib import AsyncExitStack
 from uuid import UUID, uuid4
@@ -62,7 +64,7 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                     "name": "Yêu cầu role", "seat_limit": 3, "registration_open": False},
                     headers={"Origin": ORIGIN})).status_code == 200
                 assert (await post(host, f"{base}/roles/distribute-random")).status_code == 200
-                assignments = (await host.get(f"{base}/roles/assignments")).json()
+                assignments = (await service_get(host,f"{base}/roles/assignments")).json()
                 by_id = dict(zip(ids[1:4], clients[1:4]))
                 by_role = {item["role"]["name"]: (item["user_id"], by_id[item["user_id"]])
                            for item in assignments}
@@ -71,21 +73,21 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                 passive_id, passive = by_role["Bị động"]
 
                 assert (await post(day, requests, request("Trước trận"))).status_code == 403
-                assert (await outsider.get(requests)).status_code == 403
-                assert (await outsider.get(f"{requests}/context")).status_code == 403
+                assert (await service_get(outsider,requests)).status_code == 403
+                assert (await service_get(outsider,f"{requests}/context")).status_code == 403
                 assert (await post(outsider, requests, request("Lén gửi"))).status_code == 403
                 assert (await post(host, requests, request("Host gửi"))).status_code == 403
                 assert (await post(host, f"{base}/game/start")).status_code == 200
-                assert (await day.get(f"{requests}/context")).json()["can_submit"] is True
-                assert (await night.get(f"{requests}/context")).json()["can_submit"] is False
-                assert (await passive.get(f"{requests}/context")).json()["can_submit"] is False
+                assert (await service_get(day,f"{requests}/context")).json()["can_submit"] is True
+                assert (await service_get(night,f"{requests}/context")).json()["can_submit"] is False
+                assert (await service_get(passive,f"{requests}/context")).json()["can_submit"] is False
                 assert (await post(night, requests, request("Sai pha"))).status_code == 403
                 assert (await post(passive, requests, request("Bị động tự gửi"))).status_code == 403
                 assert (await post(day, requests, request("   "))).status_code == 422
                 assert (await post(day, requests, request("x" * 2001))).status_code == 422
                 assert (await post(day, requests, {**request("Đúng"), "target_id": day_id})).status_code == 422
 
-                night_request_cursor = (await night.get(requests)).json()["room_cursor"]
+                night_request_cursor = (await service_get(night,requests)).json()["room_cursor"]
                 texts = ["3", "A, B và C", "Không có mục tiêu"]
                 sent = []
                 for text in texts:
@@ -93,7 +95,7 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                     response = await post(day, requests, body)
                     assert response.status_code == 200 and response.json()["repeated"] is False
                     sent.append((body, response.json()))
-                assert (await night.get(requests)).json()["room_cursor"] == night_request_cursor
+                assert (await service_get(night,requests)).json()["room_cursor"] == night_request_cursor
                 repeated = await post(day, requests, sent[0][0])
                 assert repeated.status_code == 200 and repeated.json()["id"] == sent[0][1]["id"]
                 assert repeated.json()["repeated"] is True
@@ -106,21 +108,21 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                 assert window.status_code == 429 and window.headers["Retry-After"] == "300"
                 monkeypatch.setattr(role_requests, "REQUEST_WINDOW_LIMIT", 100)
 
-                own = (await day.get(requests)).json()
+                own = (await service_get(day,requests)).json()
                 assert [item["text"] for item in own["requests"]] == texts
                 assert all(item["role_name"] == "Dùng ngày" and item["phase_type"] == "day"
                            and item["round_number"] == 0 for item in own["requests"])
-                assert (await night.get(requests)).json()["requests"] == []
-                assert (await passive.get(requests)).json()["requests"] == []
-                host_list = (await host.get(requests)).json()
+                assert (await service_get(night,requests)).json()["requests"] == []
+                assert (await service_get(passive,requests)).json()["requests"] == []
+                host_list = (await service_get(host,requests)).json()
                 assert [item["text"] for item in host_list["requests"]] == texts
-                assert (await day.get(f"{base}/game/players")).status_code == 403
-                board = (await host.get(f"{base}/game/players")).json()
+                assert (await service_get(day,f"{base}/game/players")).status_code == 403
+                board = (await service_get(host,f"{base}/game/players")).json()
                 assert {item["user_id"]: item["pending_request_count"] for item in board} == {
                     day_id: 3, night_id: 0, passive_id: 0}
-                after = (await host.get(f"{requests}?after_sequence={host_list['requests'][0]['sequence']}&limit=1")).json()
+                after = (await service_get(host,f"{requests}?after_sequence={host_list['requests'][0]['sequence']}&limit=1")).json()
                 assert len(after["requests"]) == 1 and after["next_after_sequence"]
-                assert (await host.get(f"{requests}?before_sequence=2&after_sequence=0")).status_code == 422
+                assert (await service_get(host,f"{requests}?before_sequence=2&after_sequence=0")).status_code == 422
                 async with session_factory()() as db:
                     rows = (await db.scalars(select(RoleRequest).where(RoleRequest.room_id == UUID(room_id)))).all()
                     assert len(rows) == 3 and all(row.status == "pending" for row in rows)
@@ -142,24 +144,24 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                 assert (await post(day, review_path, progress)).status_code == 403
                 assert (await post(host, review_path, progress)).status_code == 200
                 assert (await post(host, review_path, progress)).json()["repeated"] is True
-                changed = (await host.get(f"{requests}?after_updated_sequence={cursor}")).json()
+                changed = (await service_get(host,f"{requests}?after_updated_sequence={cursor}")).json()
                 assert [item["id"] for item in changed["requests"]] == [first_id]
                 assert changed["requests"][0]["status"] == "in_review"
-                assert next(item for item in (await host.get(f"{base}/game/players")).json()
+                assert next(item for item in (await service_get(host,f"{base}/game/players")).json()
                             if item["user_id"] == day_id)["pending_request_count"] == 3
-                assert (await night.get(f"{requests}?after_updated_sequence={cursor}")).json()["requests"] == []
-                own = (await day.get(requests)).json()["requests"]
+                assert (await service_get(night,f"{requests}?after_updated_sequence={cursor}")).json()["requests"] == []
+                own = (await service_get(day,requests)).json()["requests"]
                 assert own[0]["reply_text"] == "Đang kiểm tra" and own[0]["linked_event_ids"] == []
                 assert (await post(host, review_path, {**progress, "reply_text": "Thay đổi"})).status_code == 409
-                assert (await host.get(f"{requests}?after_updated_sequence=1&after_sequence=1")).status_code == 422
+                assert (await service_get(host,f"{requests}?after_updated_sequence=1&after_sequence=1")).status_code == 422
 
                 action = await post(host, f"{base}/game/players/{night_id}/actions", {
                     "client_request_id": str(uuid4()), "action": "add_effect",
                     "text": "Đã soi"})
                 assert action.status_code == 200
                 action_id = action.json()["event_id"]
-                assert (await night.get(f"{requests}/{first_id}/linkable-actions")).status_code == 403
-                linkable = (await host.get(f"{requests}/{first_id}/linkable-actions")).json()
+                assert (await service_get(night,f"{requests}/{first_id}/linkable-actions")).status_code == 403
+                linkable = (await service_get(host,f"{requests}/{first_id}/linkable-actions")).json()
                 assert any(item["event_id"] == action_id for item in linkable)
                 assert (await post(host, review_path, {"client_request_id": str(uuid4()),
                     "status": "accepted", "reply_text": "Đã soi",
@@ -169,11 +171,11 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                 assert (await post(host, review_path, final)).status_code == 200
                 assert (await post(host, review_path, final)).json()["repeated"] is True
                 assert (await post(host, review_path, {**final, "client_request_id": str(uuid4())})).status_code == 409
-                assert (await host.get(requests)).json()["requests"][0]["linked_event_ids"] == [action_id]
-                own = (await day.get(requests)).json()["requests"][0]
+                assert (await service_get(host,requests)).json()["requests"][0]["linked_event_ids"] == [action_id]
+                own = (await service_get(day,requests)).json()["requests"][0]
                 assert own["status"] == "accepted" and own["reply_text"] == "Đã soi"
                 assert own["linked_event_ids"] == []
-                assert next(item for item in (await host.get(f"{base}/game/players")).json()
+                assert next(item for item in (await service_get(host,f"{base}/game/players")).json()
                             if item["user_id"] == day_id)["pending_request_count"] == 2
 
                 reject_path = f"{requests}/{second_id}/review"
@@ -188,10 +190,10 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                 assert (await post(day, f"{requests}/{third_id}/withdraw", withdrawal)).json()["repeated"] is True
                 assert (await post(host, f"{requests}/{third_id}/review", {"client_request_id": str(uuid4()),
                     "status": "accepted", "reply_text": "Đã làm"})).status_code == 409
-                assert [item["status"] for item in (await day.get(requests)).json()["requests"]] == [
+                assert [item["status"] for item in (await service_get(day,requests)).json()["requests"]] == [
                     "accepted", "rejected", "withdrawn"]
                 assert all(item["pending_request_count"] == 0
-                           for item in (await host.get(f"{base}/game/players")).json())
+                           for item in (await service_get(host,f"{base}/game/players")).json())
                 async with session_factory()() as db:
                     reviewed = await db.scalar(select(GameEvent).where(
                         GameEvent.room_id == UUID(room_id), GameEvent.kind == "role.request_reviewed",
@@ -209,7 +211,7 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                 assert (await post(host, f"{actions}/{day_id}/actions", {
                     "client_request_id": str(uuid4()), "action": "change_role",
                     "role_id": roles["Bị động"], "reason": "Kiểm tra role hiện tại"})).status_code == 200
-                assert (await day.get(f"{requests}/context")).json()["can_submit"] is False
+                assert (await service_get(day,f"{requests}/context")).json()["can_submit"] is False
                 assert (await post(day, requests, request("Đã đổi bị động"))).status_code == 403
 
                 assert (await post(host, f"{base}/game/advance", {
@@ -222,7 +224,7 @@ def test_role_requests_free_text_permissions_and_privacy(monkeypatch) -> None:
                 assert (await post(host, f"{actions}/{night_id}/actions", {
                     "client_request_id": str(uuid4()), "action": "change_role",
                     "role_id": roles["Dùng đêm khi chết"], "reason": "Thử quyền mới"})).status_code == 200
-                assert (await night.get(f"{requests}/context")).json()["can_submit"] is True
+                assert (await service_get(night,f"{requests}/context")).json()["can_submit"] is True
                 assert (await post(night, requests, request("Sau khi chết vẫn xin được"))).status_code == 200
             finally:
                 if room_id:

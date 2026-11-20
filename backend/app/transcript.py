@@ -3,7 +3,7 @@
 import csv
 import json
 from bisect import bisect_right
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
 from typing import Any, Literal
 from uuid import UUID
@@ -81,7 +81,8 @@ async def transcript_info(db: AsyncSession, room: Room) -> TranscriptInfo:
              if snapshot is not None else {})
     return TranscriptInfo(room_id=room.id, room_name=room.name,
                           result_label=room.result_label, result_reason=room.result_reason,
-                          ended_at=room.ended_at, members=names, roles=roles,
+                          ended_at=room.ended_at.astimezone(timezone.utc) if room.ended_at else None,
+                          members=names, roles=roles,
                           limitation=LIMITATION)
 
 
@@ -177,7 +178,8 @@ def entry(event: GameEvent, info: TranscriptInfo,
                          payload.get("previous_disposition", payload.get("previous_text"))))
     after = payload.get("current", payload.get("new_disposition", payload.get("new_text")))
     phase_type, round_number = event_phase(event, markers)
-    return TranscriptEntry(id=event.id, sequence=event.sequence, created_at=event.created_at,
+    return TranscriptEntry(id=event.id, sequence=event.sequence,
+                           created_at=event.created_at.astimezone(timezone.utc),
                            actor_user_id=event.actor_user_id,
                            client_request_id=event.client_request_id,
                            actor_name=info.members.get(str(event.actor_user_id)) if event.actor_user_id else None,

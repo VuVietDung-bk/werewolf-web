@@ -210,23 +210,32 @@ export type PrivateMessage = {
   edited_at: string | null
 }
 export type ChatChannel = 'common' | 'team' | 'host'
+export type ReactionSummary = { emoji:string;count:number;mine:boolean }
 export type ChatMessage = {
+  source_kind: 'chat' | 'private_message' | 'role_request'
   id: string
-  event_id: string
-  sequence: number
-  updated_sequence: number
-  channel: ChatChannel
-  team_label: string | null
-  participant_user_id: string | null
   sender_user_id: string
   sender_name: string
   text: string
   created_at: string
+  phase_type?: 'day' | 'night' | null
+  round_number?: number | null
   edited_at: string | null
   deleted: boolean
-  history: { sequence: number; action: 'send' | 'edit' | 'delete'; text: string | null; created_at: string }[] | null
+  actions: { edit: boolean; delete: boolean; react: boolean }
+  history: { action: 'send' | 'edit' | 'delete'; text: string | null; created_at: string }[] | null
+  reactions: ReactionSummary[]
+  request?: {id:string;status:string;role_name:string;reply_text:string|null;can_withdraw:boolean;can_review:boolean}|null
+  read_receipt?: string|null
 }
-export type ChatPage = { messages: ChatMessage[]; next_before_sequence: number | null; next_after_sequence: number | null; next_after_updated_sequence: number | null; room_cursor: number }
+export type TimelineItem = Omit<ChatMessage,'source_kind'|'sender_user_id'|'sender_name'|'id'> & {
+  id: string
+  source: { kind: 'chat'|'private_message'|'role_request'; id:string }
+  author: { id:string;name:string;is_host:boolean }
+  type: 'message'|'role_request'
+}
+export type TimelinePage = { items: TimelineItem[]; next_before:string|null; next_changes:string;next_after:string|null }
+export type ChangesPage = { changes:{item:TimelineItem;insert:boolean}[]; next_changes:string;has_more:boolean }
 export type ChatPolicy = {
   common_send_at_night: boolean
   team_send_in_day: boolean
@@ -234,7 +243,21 @@ export type ChatPolicy = {
   dead_team_send: boolean
   slow_mode_seconds: number
 }
+export type ChannelRef = {
+  id: string
+  kind: 'common' | 'team' | 'moderator_dm' | 'announcement' | 'vote'
+  name: string
+  capabilities: { read: boolean; send: boolean; react: boolean; submit_request: boolean }
+  readonly_reason: string | null
+  team_label: string | null
+  participant_user_id: string | null
+  departed: boolean
+  last_activity_id: string | null
+  unread: boolean
+}
+export type ChannelCatalog = { channels: ChannelRef[] }
 export type ChatContext = {
+  dm_participants: { user_id: string; display_name: string; departed: boolean }[]
   team_labels: string[]
   writable_team_labels: string[]
   current_team_label: string | null
@@ -289,9 +312,9 @@ export type LinkableRoleAction = {
 }
 export type PublicCorrection = {
   id: string
-  sequence: number
+  sequence?: number
   source_event_id: string
-  source_sequence: number
+  source_sequence?: number
   source_kind: string
   text: string
   created_at: string
@@ -299,7 +322,7 @@ export type PublicCorrection = {
 }
 export type PublicAnnouncement = {
   id: string
-  sequence: number
+  sequence?: number
   phase_type: 'day' | 'night'
   round_number: number
   text: string
@@ -317,6 +340,10 @@ export type LinkableAnnouncementEvent = {
   created_at: string
 }
 
+export class ApiError extends Error {
+  constructor(message:string,public status:number,public code?:string){super(message);this.name='ApiError'}
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers)
   if (typeof options?.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
@@ -326,8 +353,10 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   })
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { detail?: unknown } | null
-    const detail = typeof body?.detail === 'string' ? body.detail : 'Yêu cầu không thực hiện được.'
-    throw new Error(detail)
+    const info=body?.detail
+    const detail=typeof info==='string'?info:info&&typeof info==='object'&&'message' in info&&typeof info.message==='string'?info.message:'Yêu cầu không thực hiện được.'
+    const code=info&&typeof info==='object'&&'code' in info&&typeof info.code==='string'?info.code:undefined
+    throw new ApiError(detail,response.status,code)
   }
   return response.status === 204 ? undefined as T : await response.json() as T
 }

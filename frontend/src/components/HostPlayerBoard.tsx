@@ -1,3 +1,4 @@
+import { useRoomSignal } from './RoomRealtime'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, jsonBody, type PlayerBoardItem, type PlayerNote, type Role, type RoleCatalog, type Room, type ScheduledAnnouncement } from '../api'
 import RoleIcon from './RoleIcon'
@@ -37,6 +38,7 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
   const [revealRole, setRevealRole] = useState(false)
   const dialog = useRef<HTMLDialogElement>(null)
   const requestIdFor = useRequestIds()
+  const roomSignal=useRoomSignal(["management", "roles", "role_requests"])
   const { ask, confirmationDialog } = useConfirmation()
   const selected = players.find((item) => item.user_id === selectedId)
   const selectedSchedule = scheduled.find((item) => item.player_id === selectedId)
@@ -56,7 +58,7 @@ export default function HostPlayerBoard({ room, onRoomChanged }: {
       void refresh().catch((cause) => setError(cause instanceof Error ? cause.message : 'Không cập nhật được bảng người chơi.'))
     }, 5000)
     return () => window.clearInterval(timer)
-  }, [room.id, room.version])
+  }, [room.id, room.version, roomSignal])
 
   useEffect(() => {
     void api<RoleCatalog>(`/api/rooms/${room.id}/role-catalog`).then((catalog) => setRoles(catalog.roles))

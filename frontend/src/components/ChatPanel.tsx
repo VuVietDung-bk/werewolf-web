@@ -1,8 +1,20 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, jsonBody, type ChatChannel, type ChatContext, type ChatMessage, type ChatPage, type ChatPolicy, type PrivateMessage, type Room } from '../api'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { api, ApiError, jsonBody, type ChatChannel, type ChatContext, type ChatMessage, type TimelineItem, type TimelinePage, type ChangesPage, type ChatPolicy, type Room } from '../api'
 import { useRequestIds } from '../useRequestIds'
 import { useConfirmation } from '../useConfirmation'
 import ChatGlyph from './ChatGlyph'
+import type { ChatSelection } from '../roomNavigation'
+import MessageComposer from './chat/MessageComposer'
+import MessageTimeline from './chat/MessageTimeline'
+import MessageRow from './chat/MessageRow'
+import { RequestComposer, RequestReviewDialog, RoleRequestRow } from './chat/RoleRequestTools'
+import { chatDisplay, messageKey, timelineMessage } from './chat/presentation'
+import { useChatDraft } from './chat/state'
+import { expandEmojiAliases } from './chat/emoji'
+import { pendingChatRequest } from './chat/pending'
+import { useRoomChannels } from './chat/ChannelContext'
+import { applyChanges, prependHistory } from './chat/changes'
+import { forgetPosition, positionFor, positionGeneration, rememberPosition } from './chat/positions'
 
 const channelNames: Record<ChatChannel, string> = {
   common: 'Chat chung', team: 'Chat đội', host: 'Chat quản trò',
@@ -11,60 +23,46 @@ const channelTabNames: Record<ChatChannel, string> = {
   common: 'Chung', team: 'Đội', host: 'Quản trò',
 }
 
-function mergeMessages(previous: ChatMessage[], next: ChatMessage[]): ChatMessage[] {
-  const byId = new Map(previous.map((message) => [message.id, message]))
-  for (const message of next) {
-    if (message.deleted && !message.history) byId.delete(message.id)
-    else byId.set(message.id, message)
-  }
-  return [...byId.values()].sort((a, b) => a.sequence - b.sequence)
-}
-
-type ChatActivity = ChatContext['activity'][number]
-type TimelineItem = { kind: 'chat'; message: ChatMessage; sequence: number }
-  | { kind: 'private'; message: PrivateMessage; sequence: number }
-const activityKey = (item: ChatActivity) => JSON.stringify([
-  item.channel, item.team_label, item.participant_user_id,
-])
-
-export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room; userId: string; onRoomChanged: () => Promise<void> }) {
-  const [channel, setChannel] = useState<ChatChannel>('common')
-  const [context, setContext] = useState<ChatContext | null>(null)
+export default function ChatPanel({ room, userId, selection, embedded = false }: { room: Room; userId: string; selection?: ChatSelection; embedded?: boolean }) {
+  const [localChannel, setChannel] = useState<ChatChannel>('common')
+  const channel = selection?.channel ?? localChannel
+  const {context,catalog,refresh:refreshChannels,error:channelError,markRead,state:connectionState,subscribe} = useRoomChannels()
   const [policyDraft, setPolicyDraft] = useState<ChatPolicy | null>(null)
   const [policyReason, setPolicyReason] = useState('')
   const [mutePlayerId, setMutePlayerId] = useState(room.members[0]?.user_id ?? '')
   const [muteReason, setMuteReason] = useState('')
-  const [teamLabel, setTeamLabel] = useState('')
-  const [participantId, setParticipantId] = useState(room.members[0]?.user_id ?? '')
+  const [internalTeamLabel, setTeamLabel] = useState('')
+  const teamLabel = selection?.team ?? internalTeamLabel
+  const [internalParticipantId, setParticipantId] = useState(room.members[0]?.user_id ?? '')
+  const participantId = selection?.participant ?? internalParticipantId
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [privateMessages, setPrivateMessages] = useState<PrivateMessage[]>([])
-  const [privateError, setPrivateError] = useState('')
-  const privateSeenKey = `ma-soi-private-seen:${room.id}:${userId}`
-  const [privateSeen, setPrivateSeen] = useState(() => {
-    try { return Number(window.sessionStorage.getItem(privateSeenKey)) || 0 }
-    catch { return 0 }
-  })
-  const [loadedThrough, setLoadedThrough] = useState<{ scope: string; sequence: number } | null>(null)
-  const seenKey = `ma-soi-chat-seen:${room.id}:${userId}`
-  const [seen, setSeen] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(window.sessionStorage.getItem(seenKey) || '{}') as Record<string, number> }
-    catch { return {} }
-  })
-  const [before, setBefore] = useState<number | null>(null)
-  const [text, setText] = useState('')
+  const [loadedScope, setLoadedScope] = useState('')
+  const [followSentVersion, setFollowSentVersion] = useState(0)
+  const pageCursor = useRef<string|null>(null)
+  const resumeCursor=useRef<{generation:number;cursor:string}|null>(null)
+  const readGeneration = useRef(0)
+  const positionEpoch=useRef(positionGeneration())
+  const historyFlight = useRef<{generation:number;revisions:Map<string,TimelineItem>;overflow:boolean}|null>(null)
+  const pageCache = useRef(new Map<string, {messages:ChatMessage[];before:string|null;after:string|null;cursor:string|null}>())
+  const cacheStatus = useRef(room.status)
+  const [before,setBefore] = useState<string|null>(null)
+  const [after,setAfter] = useState<string|null>(null)
+  const afterRef=useRef<string|null>(null)
+  const [loadingNewer,setLoadingNewer]=useState(false)
+  const [latestVersion,setLatestVersion]=useState(0)
+  const skipAnchor=useRef(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [requestOpen,setRequestOpen]=useState(false)
+  const [reviewId,setReviewId]=useState<string|null>(null)
   const [nowMs, setNowMs] = useState(Date.now())
   const [loadingOlder, setLoadingOlder] = useState(false)
+  const [resyncVersion,setResyncVersion] = useState(0)
   const [error, setError] = useState('')
-  const [connectionState, setConnectionState] = useState<'connecting' | 'live' | 'fallback'>('connecting')
-  const refreshRef = useRef<() => void>(() => {})
+  const refreshRef = useRef<() => Promise<void>>(async () => {})
   const settingsDialog = useRef<HTMLDialogElement>(null)
   const refreshContextRef = useRef<() => void>(() => {})
-  const refreshPrivateRef = useRef<() => void>(() => {})
-  const onRoomChangedRef = useRef(onRoomChanged)
-  onRoomChangedRef.current = onRoomChanged
   const requestIdFor = useRequestIds()
   const { ask, confirmationDialog } = useConfirmation()
   const base = `/api/rooms/${room.id}/chat`
@@ -75,281 +73,221 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
   }, [])
 
   useEffect(() => {
-    let active = true
-    async function refreshContext() {
-      try {
-        const next = await api<ChatContext>(`${base}/context`)
-        if (!active) return
-        setContext(next)
-        setPolicyDraft((current) => current ?? next.policy)
-        setTeamLabel((current) => current || next.current_team_label || next.team_labels[0] || '')
-      } catch (cause) {
-        if (active) setError(cause instanceof Error ? cause.message : 'Không tải được quyền chat.')
-      }
-    }
-    void refreshContext()
-    refreshContextRef.current = () => void refreshContext()
-    const timer = window.setInterval(() => void refreshContext(), 6000)
-    return () => { active = false; window.clearInterval(timer); refreshContextRef.current = () => {} }
-  }, [base])
-
-  useEffect(() => {
-    if (room.is_host || !['playing', 'finished'].includes(room.status)) {
-      setPrivateMessages([])
-      return
-    }
-    let active = true
-    async function refreshPrivate() {
-      try {
-        const items = await api<PrivateMessage[]>(`/api/rooms/${room.id}/game/private-messages`)
-        if (active) { setPrivateMessages(items); setPrivateError('') }
-      } catch (cause) {
-        if (active) setPrivateError(cause instanceof Error ? cause.message : 'Không tải được tin quản trò gửi riêng.')
-      }
-    }
-    void refreshPrivate()
-    refreshPrivateRef.current = () => void refreshPrivate()
-    const timer = window.setInterval(() => void refreshPrivate(), 8000)
-    return () => { active = false; window.clearInterval(timer); refreshPrivateRef.current = () => {} }
-  }, [room.id, room.is_host, room.status])
-
-  useEffect(() => {
-    if (channel !== 'host' || !privateMessages.length) return
-    const latest = privateMessages.at(-1)!.sequence
-    if (latest <= privateSeen) return
-    setPrivateSeen(latest)
-    try { window.sessionStorage.setItem(privateSeenKey, String(latest)) } catch { /* keep in memory */ }
-  }, [channel, privateMessages, privateSeen, privateSeenKey])
+    if(!context)return
+    setPolicyDraft((current)=>current??context.policy)
+    setTeamLabel((current)=>current||context.current_team_label||context.team_labels[0]||'')
+  },[context])
+  refreshContextRef.current=()=>{void refreshChannels()}
 
   useEffect(() => {
     if (context && room.status !== 'finished' && channel === 'team' && context.team_labels.length === 0) setChannel('common')
   }, [channel, context, room.status])
 
-  const selectedParticipant = room.is_host && room.status !== 'finished' ? participantId : undefined
-  const selectedTeam = room.is_host && room.status !== 'finished' && channel === 'team' ? teamLabel : undefined
-  const canRead = room.status === 'finished' || channel !== 'host' || !room.is_host || Boolean(selectedParticipant)
+  const selectedParticipant = room.is_host || room.status === 'finished' ? participantId : undefined
+  const selectedTeam = channel === 'team' ? selection?.team ?? (room.is_host ? teamLabel : context?.current_team_label ?? undefined) : undefined
+  const selectedChannel = catalog?.channels.find((item) => channel==='common' ? item.kind==='common'
+    :channel==='team' ? item.kind==='team' && item.team_label===(selectedTeam??context?.current_team_label)
+    :item.kind==='moderator_dm' && item.participant_user_id===(selectedParticipant??userId))
+  const canRead=Boolean(selectedChannel?.capabilities.read)
   const viewScope = JSON.stringify([
     channel, channel === 'team' ? selectedTeam ?? null : null,
     channel === 'host' ? selectedParticipant ?? null : null,
   ])
+  const draftScope = JSON.stringify([userId, room.id, viewScope])
+  const timelineScope=JSON.stringify([userId,room.id,selectedChannel?.id??viewScope])
+  const [text, setText, acknowledgeDraft] = useChatDraft(draftScope)
 
-  useEffect(() => {
-    if (!context || !loadedThrough || loadedThrough.scope !== viewScope) return
-    let next: Record<string, number> | null = null
-    for (const item of context.activity) {
-      if (item.channel !== channel || item.sequence > loadedThrough.sequence) continue
-      if (room.is_host && channel === 'team' && item.team_label !== selectedTeam) continue
-      if (room.is_host && channel === 'host' && item.participant_user_id !== selectedParticipant) continue
-      const key = activityKey(item)
-      if (item.sequence > (seen[key] ?? 0)) {
-        if (!next) next = { ...seen }
-        next[key] = item.sequence
-      }
-    }
-    if (next) {
-      setSeen(next)
-      try { window.sessionStorage.setItem(seenKey, JSON.stringify(next)) } catch { /* keep in memory */ }
-    }
-  }, [channel, context, loadedThrough, room.is_host, seen, seenKey, selectedParticipant, selectedTeam, viewScope])
+  const currentViewScope = useRef(viewScope)
+  currentViewScope.current = viewScope
+  useEffect(()=>{setRequestOpen(false);setReviewId(null)},[viewScope])
 
-  const unread = (['common', 'team', 'host'] as ChatChannel[]).reduce((result, item) => {
-    result[item] = Boolean(context?.activity.some((entry) =>
-      entry.channel === item && entry.sequence > (seen[activityKey(entry)] ?? 0)))
+  const unread=(['common','team','host'] as ChatChannel[]).reduce((result,value)=>{
+    result[value]=Boolean(catalog?.channels.some(item=>item.kind===(value==='host'?'moderator_dm':value)&&item.unread))
     return result
-  }, {} as Record<ChatChannel, boolean>)
-  if (!room.is_host && privateMessages.some((item) => item.sequence > privateSeen)) unread.host = true
-
-  function query(beforeSequence?: number, afterSequence?: number, afterUpdatedSequence?: number): string {
-    const params = new URLSearchParams({ channel })
-    if (selectedTeam) params.set('team_label', selectedTeam)
-    if (channel === 'host' && selectedParticipant) params.set('participant_user_id', selectedParticipant)
-    if (beforeSequence) params.set('before_sequence', String(beforeSequence))
-    if (afterSequence !== undefined) params.set('after_sequence', String(afterSequence))
-    if (afterUpdatedSequence !== undefined) params.set('after_updated_sequence', String(afterUpdatedSequence))
-    return `${base}/messages?${params}`
+  },{} as Record<ChatChannel,boolean>)
+  const timelineBase=`/api/v2/rooms/${room.id}/channels/${selectedChannel?.id}`
+  function query(token?:string,direction='before'):string {
+    return `${timelineBase}/timeline${token?`?${direction}=${encodeURIComponent(token)}`:''}`
   }
 
   useEffect(() => {
     let active = true
-    let first = true
-    let latestSequence = 0
-    let latestUpdate = 0
-    let fetching = false
-    let fetchAgain = false
-    setMessages([])
-    setBefore(null)
-    setLoadedThrough(null)
+    const generation=++readGeneration.current
+    // Finishing the game changes read permissions and reveals revision histories.
+    // Fetch a fresh page rather than keeping the in-game projection in the cache.
+    if (cacheStatus.current !== room.status) {
+      pageCache.current.clear()
+      cacheStatus.current = room.status
+    }
+    const cached=pageCache.current.get(viewScope)
+    let cursor=cached?.cursor??null
+    pageCursor.current=cursor
+    let inFlight:Promise<void>|null=null
+    let again=false
+    setMessages(cached?.messages??[])
+    setBefore(cached?.before??null)
+    setAfter(cached?.after??null);afterRef.current=cached?.after??null
+    setLoadedScope(cached?viewScope:'')
+    setEditingId(null)
+    setLoadingOlder(false)
+    setLoadingNewer(false)
     setError('')
-    if (!canRead) return () => { active = false }
-    async function refresh() {
-      if (fetching) { fetchAgain = true; return }
-      fetching = true
-      try {
-        if (first) {
-          const page = await api<ChatPage>(query())
-          if (!active) return
-          setMessages(page.messages)
-          setBefore(page.next_before_sequence)
-          latestSequence = page.messages.at(-1)?.sequence ?? 0
-          latestUpdate = page.room_cursor
-          setLoadedThrough({ scope: viewScope, sequence: latestSequence })
-          first = false
+    if(!canRead)return()=>{active=false}
+    async function sync(){
+      while(active){
+        try{
+          if(resumeCursor.current?.generation===generation){cursor=resumeCursor.current.cursor;pageCursor.current=cursor;resumeCursor.current=null}
+          if(!cursor){
+            const saved=skipAnchor.current?undefined:positionFor(timelineScope)
+            skipAnchor.current=false
+            let page:TimelinePage
+            try{page=await api<TimelinePage>(saved?.key&&!saved.atEnd?query(saved.key,'around_item'):query())}
+            catch(cause){
+              if(!(cause instanceof ApiError)||cause.status!==404||!saved?.key)throw cause
+              if(!active)return
+              forgetPosition(timelineScope)
+              page=await api<TimelinePage>(query())
+            }
+            if(!active)return
+            setMessages(page.items.map(timelineMessage));setBefore(page.next_before);setLoadedScope(viewScope)
+            setAfter(page.next_after);afterRef.current=page.next_after
+            cursor=page.next_changes;pageCursor.current=cursor
+          }else{
+            let more=true
+            while(more&&active){
+              const page:ChangesPage=await api<ChangesPage>(`${timelineBase}/changes?cursor=${encodeURIComponent(cursor!)}`)
+              if(!active)return
+              const flight=historyFlight.current
+              if(flight?.generation===generation)for(const change of page.changes){
+                if(!change.insert){
+                  if(flight.revisions.size>=512&&!flight.revisions.has(change.item.id))flight.overflow=true
+                  else flight.revisions.set(change.item.id,change.item)
+                }
+              }
+              // A restored middle window must stay contiguous: forward pagination loads
+              // the gap on demand. Revisions still update rows already in that window.
+              if(page.changes.length)setMessages(current=>applyChanges(current,afterRef.current?
+                page.changes.map(change=>({...change,insert:false})):page.changes))
+              cursor=page.next_changes;pageCursor.current=cursor;more=page.has_more
+            }
+          }
           return
-        }
-        let cursor = latestSequence
-        while (true) {
-          const page: ChatPage = await api<ChatPage>(query(undefined, cursor))
-          if (!active) return
-          if (page.messages.length) {
-            setMessages((current) => mergeMessages(current, page.messages))
-            latestSequence = page.messages.at(-1)!.sequence
+        }catch(cause){
+          if(!active)return
+          if(cause instanceof ApiError&&cause.code==='chat_resync_required'){
+            active=false;readGeneration.current++;historyFlight.current=null
+            cursor=null;pageCursor.current=null;pageCache.current.delete(viewScope)
+            setMessages([]);setBefore(null);setLoadedScope('');setResyncVersion(value=>value+1);return
           }
-          if (page.next_after_sequence === null) break
-          cursor = page.next_after_sequence
+          setLoadedScope(viewScope)
+          setError(cause instanceof Error?cause.message:'Không tải được chat.');return
         }
-        let updateCursor = latestUpdate
-        while (true) {
-          const page: ChatPage = await api<ChatPage>(query(undefined, undefined, updateCursor))
-          if (!active) return
-          if (page.messages.length) {
-            setMessages((current) => {
-              const loaded = new Set(current.map((item) => item.id))
-              return mergeMessages(current, page.messages.filter((item) => loaded.has(item.id)))
-            })
-          }
-          if (page.next_after_updated_sequence === null) {
-            latestUpdate = page.room_cursor
-            break
-          }
-          updateCursor = page.next_after_updated_sequence
-        }
-        setLoadedThrough({ scope: viewScope, sequence: latestSequence })
-      } catch (cause) {
-        if (active) setError(cause instanceof Error ? cause.message : 'Không tải được chat.')
-      } finally {
-        fetching = false
-        if (active && fetchAgain) { fetchAgain = false; void refresh() }
       }
+    }
+    function refresh():Promise<void>{
+      if(inFlight){again=true;return inFlight}
+      inFlight=(async()=>{do{again=false;await sync()}while(active&&again)})().finally(()=>{inFlight=null})
+      return inFlight
     }
     void refresh()
-    refreshRef.current = () => void refresh()
-    const timer = window.setInterval(() => void refresh(), 5000)
-    return () => { active = false; window.clearInterval(timer); refreshRef.current = () => {} }
-  }, [base, channel, selectedParticipant, selectedTeam, canRead, viewScope, room.status])
+    refreshRef.current=refresh
+    const timer=window.setInterval(()=>void refresh(),5000)
+    return()=>{active=false;readGeneration.current++;historyFlight.current=null;window.clearInterval(timer);refreshRef.current=async()=>{}}
+  },[base,channel,selectedParticipant,selectedTeam,selectedChannel?.id,canRead,viewScope,room.status,resyncVersion,latestVersion,timelineScope])
 
-  useEffect(() => {
-    let active = true
-    let chatTimer: number | null = null
-    let contextTimer: number | null = null
-    let reconnectTimer: number | null = null
-    let socket: WebSocket | null = null
-    let attempts = 0
-    const cursorKey = `ma-soi-live-cursor:${room.id}`
-    let cursor = 0
-    try { cursor = Number(window.sessionStorage.getItem(cursorKey)) || 0 } catch { /* storage can be disabled */ }
-    const seen = new Set<string>()
-    const saveCursor = (sequence: number) => {
-      cursor = sequence
-      try { window.sessionStorage.setItem(cursorKey, String(cursor)) } catch { /* keep in memory */ }
+  useEffect(()=>{
+    if(loadedScope!==viewScope)return
+    pageCache.current.delete(viewScope)
+    pageCache.current.set(viewScope,{messages,before,after,cursor:pageCursor.current})
+    let total=[...pageCache.current.values()].reduce((sum,page)=>sum+page.messages.length,0)
+    while(pageCache.current.size>1&&(pageCache.current.size>8||total>12000)){
+      const key=pageCache.current.keys().next().value!
+      total-=pageCache.current.get(key)!.messages.length;pageCache.current.delete(key)
     }
-    const refreshAll = () => {
-      refreshRef.current()
-      refreshContextRef.current()
-      refreshPrivateRef.current()
-      void onRoomChangedRef.current().catch(() => {})
-    }
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const reconnect = () => {
-      if (!active) return
-      setConnectionState('fallback')
-      const delay = Math.min(10000, 500 * 2 ** Math.min(attempts++, 5))
-      reconnectTimer = window.setTimeout(connect, delay)
-    }
-    function connect() {
-      if (!active) return
-      setConnectionState('connecting')
-      const suffix = cursor > 0 ? `?after_sequence=${cursor}` : ''
-      try { socket = new WebSocket(`${protocol}//${window.location.host}/api/rooms/${room.id}/live${suffix}`) }
-      catch { reconnect(); return }
-      socket.onmessage = (message) => {
-        let notice: { type?: string; cursor?: number; event_id?: string; sequence?: number; kind?: string }
-        try { notice = JSON.parse(message.data) as typeof notice } catch { return }
-        if (!active) return
-        if (notice.type === 'ready' && Number.isSafeInteger(notice.cursor)) {
-          saveCursor(notice.cursor!)
-          attempts = 0
-          setConnectionState('live')
-          refreshAll()
-          return
-        }
-        if (notice.type !== 'game.event' || !notice.event_id || !notice.kind || !Number.isSafeInteger(notice.sequence)) return
-        saveCursor(Math.max(cursor, notice.sequence!))
-        if (seen.has(notice.event_id)) return
-        seen.add(notice.event_id)
-        if (seen.size > 1000) seen.delete(seen.values().next().value!)
-        if (notice.kind === 'chat.sent' || notice.kind === 'chat.revised') {
-          if (chatTimer !== null) window.clearTimeout(chatTimer)
-          chatTimer = window.setTimeout(() => { refreshRef.current(); chatTimer = null }, 80)
-          if (contextTimer !== null) window.clearTimeout(contextTimer)
-          contextTimer = window.setTimeout(() => { refreshContextRef.current(); contextTimer = null }, 80)
-        } else {
-          if (notice.kind === 'player.private_message_sent') refreshPrivateRef.current()
-          if (contextTimer !== null) window.clearTimeout(contextTimer)
-          contextTimer = window.setTimeout(() => { refreshContextRef.current(); contextTimer = null }, 80)
-          if (notice.kind.startsWith('game.') || notice.kind.startsWith('room.') || notice.kind.startsWith('member.')) {
-            void onRoomChangedRef.current().catch(() => {})
-          }
-        }
-      }
-      socket.onclose = (event) => {
-        if (!active) return
-        if ([4400, 4401, 4403, 4404].includes(event.code)) { setConnectionState('fallback'); return }
-        reconnect()
-      }
-      socket.onerror = () => { if (active) setConnectionState('fallback') }
-    }
-    connect()
-    return () => {
-      active = false
-      if (chatTimer !== null) window.clearTimeout(chatTimer)
-      if (contextTimer !== null) window.clearTimeout(contextTimer)
-      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
-      socket?.close()
-    }
-  }, [room.id])
+  },[messages,before,after,viewScope,loadedScope])
 
-  async function loadOlder() {
-    if (before === null || loadingOlder) return
-    setLoadingOlder(true)
-    try {
-      const page = await api<ChatPage>(query(before))
-      setMessages((current) => mergeMessages(current, page.messages))
-      setBefore(page.next_before_sequence)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không tải được tin cũ.')
-    } finally { setLoadingOlder(false) }
+  useEffect(()=>subscribe(signal=>{
+    if(signal.resync){
+      readGeneration.current++;historyFlight.current=null;pageCache.current.clear();pageCursor.current=null
+      setMessages([]);setBefore(null);setLoadedScope('');setResyncVersion(value=>value+1)
+    }else if((signal.scopes.includes('chat')||signal.scopes.includes('role_requests'))&&(!signal.channelIds.length||signal.channelIds.includes(selectedChannel?.id??''))){
+      void refreshRef.current()
+    }
+  }),[subscribe,selectedChannel?.id])
+
+  function jumpLatest(){
+    rememberPosition(timelineScope,{key:null,offset:0,top:0,atEnd:true},positionEpoch.current)
+    readGeneration.current++;historyFlight.current=null;pageCache.current.delete(viewScope)
+    pageCursor.current=null;afterRef.current=null;skipAnchor.current=true
+    setAfter(null);setMessages([]);setLoadedScope('');setLatestVersion(value=>value+1)
   }
 
-  function send(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (busy || !text.trim()) return
-    const payload = { channel, text: text.trim(),
-      ...(channel === 'team' && room.is_host ? { team_label: teamLabel } : {}),
-      ...(channel === 'host' && room.is_host ? { participant_user_id: participantId } : {}) }
-    const request = requestIdFor({ room_id: room.id, payload })
+  async function loadOlder(direction:'before'|'after'='before') {
+    const token=direction==='before'?before:after
+    if (token === null || loadingOlder || loadingNewer || historyFlight.current) return
+    const generation=readGeneration.current
+    const flight={generation,revisions:new Map<string,TimelineItem>(),overflow:false}
+    historyFlight.current=flight
+    if(direction==='before')setLoadingOlder(true);else setLoadingNewer(true)
+    try {
+      const page = await api<TimelinePage>(query(token,direction))
+      if(currentViewScope.current!==viewScope||generation!==readGeneration.current)return
+      if(flight.overflow){
+        pageCache.current.delete(viewScope);setMessages([]);setBefore(null);setLoadedScope('');setResyncVersion(value=>value+1);return
+      }
+      const revisions=new Map(flight.revisions)
+      setMessages((current) => direction==='before'?prependHistory(current,page.items,revisions):
+        applyChanges(current,page.items.map(item=>({item:revisions.get(item.id)??item,insert:true}))))
+      if(direction==='before')setBefore(page.next_before)
+      else{
+        setAfter(page.next_after);afterRef.current=page.next_after
+        if(!page.next_after){
+          // Creations may have been skipped while this middle window had a gap.
+          // Replay from its snapshot once the gap closes, including a creation
+          // committed after the last forward page was read but before its ACK.
+          resumeCursor.current={generation,cursor:page.next_changes}
+          void refreshRef.current()
+        }
+      }
+    } catch (cause) {
+      if(generation!==readGeneration.current)return
+      if(currentViewScope.current===viewScope&&cause instanceof ApiError&&cause.code==='chat_resync_required'){
+        pageCache.current.delete(viewScope);pageCursor.current=null
+        setMessages([]);setBefore(null);setLoadedScope('');setResyncVersion(value=>value+1);return
+      }
+      if(currentViewScope.current===viewScope)setError(cause instanceof Error ? cause.message : 'Không tải được tin cũ.')
+    } finally {
+      if(historyFlight.current===flight)historyFlight.current=null
+      if(currentViewScope.current===viewScope&&generation===readGeneration.current){setLoadingOlder(false);setLoadingNewer(false)}
+    }
+  }
+
+  function send() {
+    if (busy || !canSend || !selectedChannel || slowRemaining>0 || !text.trim()) return
+    const payload = { text: expandEmojiAliases(text.trim()) }
+    const request = requestIdFor({ user_id:userId,room_id: room.id,channel_id:selectedChannel.id, payload })
+    const legacyPayload = { channel, ...payload,
+      ...(channel === 'team' && room.is_host ? {team_label:teamLabel} : {}),
+      ...(channel === 'host' && room.is_host ? {participant_user_id:participantId} : {}) }
+    const pending = pendingChatRequest(draftScope, {channel_id:selectedChannel.id,...payload}, request.id, [legacyPayload])
     setBusy(true)
     setError('')
     void (async () => {
       let sent = false
       try {
-        await api(`${base}/messages`, { method: 'POST', body: jsonBody({ ...payload, client_request_id: request.id }) })
+        await api(`/api/v2/rooms/${room.id}/channels/${selectedChannel.id}/messages`, { method: 'POST', body: jsonBody({ ...payload, client_request_id: pending.id }) })
         sent = true
         request.acknowledge()
-        setText('')
+        pending.acknowledge()
+        acknowledgeDraft(text)
+        if(currentViewScope.current===viewScope){
+          if(afterRef.current||loadedScope!==viewScope)jumpLatest()
+          setFollowSentVersion((value)=>value+1)
+        }
         refreshContextRef.current()
-        const page = await api<ChatPage>(query())
-        setMessages((current) => mergeMessages(current, page.messages))
+        if(currentViewScope.current===viewScope)void refreshRef.current()
       } catch (cause) {
+        if (currentViewScope.current !== viewScope) return
         setError(sent ? 'Tin đã gửi, nhưng chưa tải lại được. Vui lòng mở lại tab Chat để xem.'
           : cause instanceof Error ? cause.message : 'Không gửi được tin.')
       } finally { setBusy(false) }
@@ -362,31 +300,61 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
     if (action === 'delete') {
       const confirmed = await ask({ title: 'Xóa tin nhắn',
         phase: `${room.phase_type === 'night' ? 'Đêm' : 'Ngày'} ${room.round_number}`,
-        subject: channelNames[message.channel],
-        audience: message.channel === 'common' ? 'Toàn phòng' : message.channel === 'team' ? `Đội ${message.team_label}` : 'Người chơi nhận tin',
+        subject: channelNames[channel],
+        audience: channel === 'common' ? 'Toàn phòng' : channel === 'team' ? `Đội ${selectedTeam}` : 'Người chơi nhận tin',
         publicText: 'Tin sẽ biến mất khỏi chat hiện tại. Nội dung gốc và thao tác xóa vẫn hiện trong lịch sử sau trận.',
         confirmLabel: 'Xóa tin' })
       if (!confirmed) return
     }
     const payload = { action, text: nextText }
-    const request = requestIdFor({ room_id: room.id, source_event_id: message.event_id, ...payload })
+    const request = requestIdFor({ room_id: room.id, source_kind:message.source_kind,source_id:message.id,channel_id:selectedChannel?.id, ...payload })
     setBusy(true)
     setError('')
     try {
-      await api(`/api/rooms/${room.id}/game/content/${message.event_id}/revisions`, {
+      await api(`${timelineBase}/items/${message.source_kind}/${message.id}/revisions`, {
         method: 'POST', body: jsonBody({ ...payload, client_request_id: request.id }),
       })
       request.acknowledge()
+      if (currentViewScope.current !== viewScope) return
       setEditingId(null)
-      const page = await api<ChatPage>(query())
-      setMessages((current) => {
-        const withoutDeleted = current.filter((item) => item.id !== message.id || action !== 'delete')
-        return mergeMessages(withoutDeleted, page.messages)
-      })
-      refreshRef.current()
+      await refreshRef.current()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không sửa được tin nhắn.')
+      if (currentViewScope.current === viewScope) setError(cause instanceof Error ? cause.message : 'Không sửa được tin nhắn.')
     } finally { setBusy(false) }
+  }
+
+  async function react(message:ChatMessage,emoji:string,present:boolean) {
+    if(busy||!selectedChannel?.capabilities.react)return
+    const identity={user_id:userId,room_id:room.id,channel_id:selectedChannel.id,
+      source_kind:message.source_kind,source_id:message.id,emoji}
+    // A newer opposite intent invalidates a lost-ACK command from the previous state.
+    requestIdFor({...identity,present:!present}).acknowledge()
+    const request=requestIdFor({...identity,present})
+    setBusy(true);setError('')
+    try{
+      await api(`${timelineBase}/read`,{method:'POST',body:jsonBody({visible_item_id:messageKey(message)})})
+      await api(`${timelineBase}/items/${message.source_kind}/${message.id}/reactions`,{
+        method:present?'PUT':'DELETE',body:jsonBody({emoji,client_request_id:request.id}),
+      })
+      request.acknowledge()
+      if(currentViewScope.current===viewScope)await refreshRef.current()
+    }catch(cause){
+      if(currentViewScope.current===viewScope){
+        setError(cause instanceof Error?cause.message:'Không cập nhật được reaction.')
+        refreshContextRef.current()
+      }
+    }finally{setBusy(false)}
+  }
+
+  async function withdrawRequest(message:ChatMessage){
+    if(busy||!message.request?.can_withdraw)return
+    if(!await ask({title:'Rút yêu cầu dùng role',phase:`${room.phase_type==='night'?'Đêm':'Ngày'} ${room.round_number}`,subject:message.text,audience:'Bạn và quản trò',
+      publicText:'Yêu cầu sẽ được đánh dấu đã rút; nội dung vẫn giữ trong lịch sử.',confirmLabel:'Rút yêu cầu'}))return
+    const request=requestIdFor({room_id:room.id,role_request_id:message.id,withdraw:true})
+    setBusy(true);setError('')
+    try{await api(`/api/rooms/${room.id}/role-requests/${message.id}/withdraw`,{method:'POST',body:jsonBody({client_request_id:request.id})});request.acknowledge();if(currentViewScope.current===viewScope)await refreshRef.current()}
+    catch(cause){if(currentViewScope.current===viewScope)setError(cause instanceof Error?cause.message:'Không rút được yêu cầu.')}
+    finally{setBusy(false)}
   }
 
   async function savePolicy(event: FormEvent<HTMLFormElement>) {
@@ -415,7 +383,7 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
       saved = true
       request.acknowledge()
       const next = await api<ChatContext>(`${base}/context`)
-      setContext(next)
+      await refreshChannels()
       setPolicyDraft(next.policy)
       setPolicyReason('')
     } catch (cause) {
@@ -446,7 +414,7 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
         body: jsonBody({ ...payload, client_request_id: request.id }) })
       saved = true
       request.acknowledge()
-      setContext(await api<ChatContext>(`${base}/context`))
+      await refreshChannels()
       setMuteReason('')
     } catch (cause) {
       setError(saved ? 'Đã đổi quyền chat, nhưng chưa tải lại được. Vui lòng mở lại tab Chat.'
@@ -454,19 +422,19 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
     } finally { setBusy(false) }
   }
 
-  const canSend = channel === 'common' ? context?.can_send_common
-    : channel === 'team' ? context?.can_send_team && (!room.is_host || context.writable_team_labels.includes(teamLabel))
-      : context?.can_send_host && (!room.is_host || Boolean(participantId))
-  const timeline: TimelineItem[] = messages.map((message) => ({ kind: 'chat', message, sequence: message.sequence }))
+  const canSend = Boolean(selectedChannel?.capabilities.send)
   const slowRemaining = room.is_host || !context?.next_chat_at ? 0
     : Math.max(0, Math.ceil((new Date(context.next_chat_at).getTime() - nowMs) / 1000))
-  if (channel === 'host' && !room.is_host) {
-    timeline.push(...privateMessages.map((message) => ({ kind: 'private' as const, message, sequence: message.sequence })))
-    timeline.sort((left, right) => left.sequence - right.sequence)
-  }
+  const timeline = useMemo(() => canRead && loadedScope === viewScope
+    ? messages.map((message) => chatDisplay(message, room.host_id)) : [],
+    [messages, room.host_id, loadedScope, viewScope, canRead])
+  const readonlyReason = selectedChannel?.readonly_reason ?? (channelError
+    ? 'Không tải được quyền kênh. Hãy cập nhật phòng để thử lại.'
+    : catalog ? 'Kênh này hiện không có quyền truy cập.' : 'Đang tải quyền gửi tin…')
 
-  return <section className="chat-panel" aria-labelledby="chat-title">
-    <span className="eyebrow">CHUYỆN TRONG LÀNG</span><h2 id="chat-title">Chat</h2>
+  return <section className={`chat-panel ${embedded ? 'chat-panel-embedded' : ''}`} aria-label={embedded ? 'Cuộc trò chuyện' : undefined} aria-labelledby={embedded ? undefined : 'chat-title'}>
+    {embedded && <h2 id="chat-title" className="sr-only">Cuộc trò chuyện</h2>}
+    {!embedded && <><span className="eyebrow">CHUYỆN TRONG LÀNG</span><h2 id="chat-title">Chat</h2></>}
     <small className="chat-connection" role="status">{connectionState === 'live' ? 'Đang nhận tin trực tiếp' : connectionState === 'connecting' ? 'Đang kết nối chat…' : 'Đang tự cập nhật tin mới'}</small>
     <p>{room.status === 'finished'
       ? 'Sau trận, mọi người từng tham gia xem được cả ba kênh và từng bản sửa/xóa trong lịch sử mỗi tin.'
@@ -475,70 +443,45 @@ export default function ChatPanel({ room, userId, onRoomChanged }: { room: Room;
     {context?.is_muted && <p className="chat-mute-notice" role="status">Quản trò đã tạm chặn quyền gửi chat của bạn. Lý do: {context.mute_reason}</p>}
     {room.is_host && room.status !== 'finished' && <button type="button" className="button-secondary chat-settings-trigger"
       onClick={() => settingsDialog.current?.showModal()}>Cài đặt chat</button>}
-    <div className="chat-channel-tabs" role="group" aria-label="Kênh chat">
+    <div className={embedded ? 'chat-channel-tabs hide-embedded' : 'chat-channel-tabs'} role="group" aria-label="Kênh chat">
       {(['common', ...(room.status === 'finished' || context?.team_labels.length ? ['team'] : []), 'host'] as ChatChannel[]).map((item) => <button key={item} type="button"
         className={`${channel === item ? 'active ' : ''}${unread[item] ? 'has-unread' : ''}`} aria-pressed={channel === item}
-        onClick={() => { setChannel(item); setText('') }}>
+        onClick={() => setChannel(item)}>
         <ChatGlyph channel={item} /><span className="chat-tab-label">{channelTabNames[item]}</span>
         {unread[item] && <span className="chat-unread" aria-label="Có tin mới">Mới</span>}
       </button>)}
     </div>
-    {channel === 'team' && room.is_host && room.status !== 'finished' && <label className="chat-picker">Đội chat
+    {!embedded && channel === 'team' && room.is_host && room.status !== 'finished' && <label className="chat-picker">Đội chat
       <select value={teamLabel} onChange={(event) => setTeamLabel(event.target.value)}>
         {context?.team_labels.length ? context.team_labels.map((label) => <option key={label} value={label}>{label}{context.writable_team_labels.includes(label) ? '' : ' · lịch sử'}</option>)
           : <option value="">Chưa có đội chat</option>}
       </select></label>}
-    {channel === 'host' && room.is_host && room.status !== 'finished' && <label className="chat-picker">Người chơi
+    {!embedded && channel === 'host' && room.is_host && room.status !== 'finished' && <label className="chat-picker">Người chơi
       <select value={participantId} onChange={(event) => setParticipantId(event.target.value)}>
         {room.members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}</option>)}
       </select></label>}
     {channel === 'team' && !room.is_host && room.status !== 'finished' && <p className="chat-scope">Đội hiện tại: {context?.current_team_label || 'Không có'} · Tin của các đội bạn từng tham gia vẫn đọc được.</p>}
     {channel === 'host' && !room.is_host && room.status !== 'finished' && <p className="chat-scope">Chỉ bạn và quản trò thấy trong trận. Tin quản trò gửi từ Bàn quản trò cũng ở đây; quyền trả lời tùy role của bạn.</p>}
-    {before !== null && <button type="button" className="button-secondary chat-older" disabled={loadingOlder}
-      onClick={() => void loadOlder()}>{loadingOlder ? 'Đang tải…' : 'Xem tin cũ hơn'}</button>}
-    <ol className="chat-message-list" aria-live="polite">
-      {timeline.map((item) => {
-        if (item.kind === 'private') return <li key={`private:${item.message.id}`} className="chat-private-notice">
-          <div><strong>Quản trò</strong><span className="chat-host-badge">Quản trò chính thức</span><span> · Tin gửi riêng</span>
-            <time dateTime={item.message.created_at}>{new Date(item.message.created_at).toLocaleString('vi-VN')}</time></div>
-          <p>{item.message.text}{item.message.edited_at ? <small> · đã sửa</small> : null}</p>
-        </li>
-        const message = item.message
-        return <li key={`chat:${message.id}`}>
-        <div><strong>{message.sender_user_id === room.host_id ? 'Quản trò' : message.sender_name}</strong>
-          {message.sender_user_id === room.host_id && <span className="chat-host-badge">Quản trò chính thức</span>}
-          {channel === 'team' && message.team_label && <span> · {message.team_label}</span>}
-          {channel === 'host' && room.status === 'finished' && <span> · {room.members.find((member) => member.user_id === message.participant_user_id)?.display_name ?? 'Người chơi'}</span>}
-          <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString('vi-VN')}</time></div>
-        <p>{message.deleted ? 'Tin nhắn đã xóa' : message.text}{message.edited_at && !message.deleted ? <small> · đã sửa</small> : null}</p>
-        {room.is_host && room.status === 'playing' && message.sender_user_id === userId && !message.deleted && <div className="chat-message-actions">
-          <button type="button" className="button-secondary" disabled={busy} onClick={() => { setEditingId(message.id); setEditingText(message.text) }}>Sửa</button>
-          <button type="button" className="button-secondary" disabled={busy} onClick={() => void reviseMessage(message, 'delete')}>Xóa</button>
-        </div>}
-        {editingId === message.id && <form className="chat-edit" onSubmit={(event) => { event.preventDefault(); void reviseMessage(message, 'edit') }}>
-          <label>Chỉnh tin nhắn<textarea maxLength={2000} value={editingText} onChange={(event) => setEditingText(event.target.value)} /></label>
-          <div><button disabled={busy || !editingText.trim() || editingText.trim() === message.text}>Lưu</button>
-            <button type="button" className="button-secondary" onClick={() => setEditingId(null)}>Hủy</button></div>
-        </form>}
-        {message.history && <details className="chat-history"><summary>Lịch sử đầy đủ ({message.history.length} phiên bản)</summary>
-          <ol>{message.history.map((entry) => <li key={entry.sequence}>
-            <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString('vi-VN')}</time>
-            <strong>{entry.action === 'send' ? 'Gửi' : entry.action === 'edit' ? 'Sửa' : 'Xóa'}</strong>
-            {entry.text && <p>{entry.text}</p>}
-          </li>)}</ol>
-        </details>}
-        </li>
-      })}
-    </ol>
-    {!timeline.length && <p className="chat-empty">Chưa có tin nhắn ở kênh này.</p>}
-    {error && <p className="form-message" role="alert">{error}</p>}
-    {channel === 'host' && privateError && <p className="form-message" role="alert">{privateError}</p>}
-    {canSend ? <form className="chat-send" onSubmit={send}>
-      <label htmlFor="chat-text">Gửi vào {channelNames[channel].toLowerCase()}</label>
-      <textarea id="chat-text" maxLength={2000} value={text} onChange={(event) => setText(event.target.value)} />
-      {slowRemaining > 0 && <small role="status">Slow mode: gửi tiếp sau {slowRemaining} giây.</small>}
-      <button disabled={busy || !text.trim() || slowRemaining > 0}>{busy ? 'Đang gửi…' : slowRemaining ? `Chờ ${slowRemaining}s` : 'Gửi tin'}</button>
-    </form> : <p className="chat-scope">Hiện tại bạn chỉ có thể đọc kênh này.</p>}
+    <MessageTimeline key={timelineScope} items={timeline} scope={timelineScope} loading={!catalog||(canRead&&loadedScope!==viewScope)}
+      onVisibleItem={(item,receipt)=>{if(canRead&&selectedChannel)markRead(selectedChannel.id,item,receipt)}}
+      loadingOlder={loadingOlder} hasOlder={before!==null} loadOlder={()=>void loadOlder()} followSentVersion={followSentVersion}
+      hasLater={after!==null} loadingNewer={loadingNewer} loadNewer={()=>void loadOlder('after')} jumpLatest={jumpLatest} pinnedKey={editingId}
+      renderRow={(item,grouped)=>item.kind==='request'?<RoleRequestRow key={item.key} item={item} busy={busy}
+        onReview={()=>setReviewId(item.original!.id)} onWithdraw={()=>void withdrawRequest(item.original!)}/>:<MessageRow key={item.key} item={item} grouped={grouped} busy={busy}
+        canEdit={Boolean(item.original?.actions.edit)}
+        canReact={Boolean(selectedChannel?.capabilities.react&&!item.deleted)}
+        onReaction={(emoji,present)=>{if(item.original)void react(item.original,emoji,present)}}
+        editing={Boolean(item.original&&editingId===messageKey(item.original))} editText={editingText} onEditText={setEditingText}
+        onEdit={()=>{if(item.original){setEditingId(messageKey(item.original));setEditingText(item.text)}}}
+        onDelete={()=>{if(item.original)void reviseMessage(item.original,'delete')}}
+        onSaveEdit={()=>{if(item.original)void reviseMessage(item.original,'edit')}} onCancelEdit={()=>setEditingId(null)} />} />
+    {(error||channelError)&&<p className="form-message" role="alert">{error||channelError}</p>}
+    {canSend?<MessageComposer value={text} onChange={setText} onSend={send} busy={busy}
+      slowRemaining={slowRemaining} channelName={channelNames[channel].toLowerCase()} scope={draftScope}/>
+      :<p className="chat-scope" role="status">{readonlyReason}</p>}
+    {selectedChannel?.kind==='moderator_dm'&&!room.is_host&&room.status==='playing'&&<button type="button" className="u3-request-open" onClick={()=>setRequestOpen(true)}>Yêu cầu dùng role…</button>}
+    {requestOpen&&<RequestComposer room={room} userId={userId} onClose={()=>setRequestOpen(false)} onSent={()=>void refreshRef.current()}/>}
+    {reviewId&&<RequestReviewDialog roomId={room.id} requestId={reviewId} onClose={()=>setReviewId(null)} onReviewed={()=>void refreshRef.current()}/>}
     {room.is_host && room.status !== 'finished' && <dialog ref={settingsDialog} className="settings-dialog" aria-labelledby="chat-settings-title">
       <div className="settings-dialog-header"><h2 id="chat-settings-title">Cài đặt chat</h2>
         <button type="button" className="button-secondary" onClick={() => settingsDialog.current?.close()} aria-label="Đóng cài đặt chat">✕</button></div>

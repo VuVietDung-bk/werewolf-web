@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import current_user, now_utc, require_room_access, require_room_host
 from app.db.events import append_event
 from app.db.models import (GameEvent, PlayerState, RoleAssignment, RoleRequest,
-                           RoleSnapshot, Room, User)
+                           RoleSnapshot, Room, RoomMember, User)
 from app.db.session import get_db
 from app.roles import effective_role_data
 
@@ -155,6 +155,14 @@ async def check_rate(db: AsyncSession, room_id: UUID, user_id: UUID) -> None:
                             headers={"Retry-After": str(REQUEST_BURST_SECONDS)})
 
 
+async def lock_request_room(db,room_id,user):
+    await require_room_access(db,room_id,user.id)
+    room=await db.scalar(select(Room).where(Room.id==room_id).with_for_update().execution_options(populate_existing=True))
+    if room.owner_user_id!=user.id:await db.get(RoomMember,(room_id,user.id),populate_existing=True)
+    await require_room_access(db,room_id,user.id)
+    return room
+
+
 @router.get("/context", response_model=RoleRequestContext)
 async def role_request_context(room_id: UUID, user: User = Depends(current_user),
                                db: AsyncSession = Depends(get_db)) -> RoleRequestContext:
@@ -170,15 +178,23 @@ async def role_request_context(room_id: UUID, user: User = Depends(current_user)
                               is_alive=role_state[1].is_alive if role_state else None)
 
 
-@router.get("", response_model=RoleRequestPage)
-async def list_role_requests(room_id: UUID,
+@router.get('',response_model=RoleRequestPage)
+async def list_role_requests(room_id:UUID,before_sequence:int|None=Query(default=None,ge=1),
+    after_sequence:int|None=Query(default=None,ge=0),after_updated_sequence:int|None=Query(default=None,ge=0),
+    limit:int=Query(default=30,ge=1,le=50),user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
+    from app.legacy_protocol import require_legacy_reader
+    await require_legacy_reader(db,room_id,user)
+    return await read_role_requests(room_id,before_sequence,after_sequence,after_updated_sequence,limit,user,db)
+
+
+async def read_role_requests(room_id: UUID,
                              before_sequence: int | None = Query(default=None, ge=1),
                              after_sequence: int | None = Query(default=None, ge=0),
                              after_updated_sequence: int | None = Query(default=None, ge=0),
                              limit: int = Query(default=30, ge=1, le=50),
                              user: User = Depends(current_user),
                              db: AsyncSession = Depends(get_db)) -> RoleRequestPage:
-    is_host = await require_room_access(db, room_id, user.id)
+    is_host = await require_room_access(db,room_id,user.id)
     if sum(value is not None for value in (before_sequence, after_sequence, after_updated_sequence)) > 1:
         raise HTTPException(status_code=422, detail="Chỉ dùng một hướng phân trang")
     room = await db.get(Room, room_id)
@@ -225,7 +241,7 @@ async def submit_role_request(room_id: UUID, body: RoleRequestInput,
                               db: AsyncSession = Depends(get_db)) -> RoleRequestSendOutput:
     if await require_room_access(db, room_id, user.id):
         raise HTTPException(status_code=403, detail="Quản trò không gửi yêu cầu role")
-    room = (await db.scalars(select(Room).where(Room.id == room_id).with_for_update())).one()
+    room = await lock_request_room(db,room_id,user)
     request = {"user_id": str(user.id), "text": body.text}
     prior = await db.scalar(select(GameEvent).where(
         GameEvent.room_id == room_id, GameEvent.client_request_id == body.client_request_id))
@@ -245,7 +261,8 @@ async def submit_role_request(room_id: UUID, body: RoleRequestInput,
                                 "role_name": role["name"], "phase_type": room.phase_type,
                                 "round_number": room.round_number},
                                client_request_id=body.client_request_id)
-    saved = RoleRequest(room_id=room_id, user_id=user.id, event_id=event.id,
+    processed_at=now_utc();event.created_at=processed_at
+    saved = RoleRequest(room_id=room_id, user_id=user.id, event_id=event.id,created_at=processed_at,updated_at=processed_at,
                         sequence=event.sequence, updated_sequence=event.sequence, role_id=UUID(role["id"]),
                         role_name=role["name"], phase_type=room.phase_type,
                         round_number=room.round_number, text=body.text, status="pending")
@@ -253,6 +270,15 @@ async def submit_role_request(room_id: UUID, body: RoleRequestInput,
     await db.flush()
     await db.commit()
     return RoleRequestSendOutput(id=saved.id, event_id=event.id, repeated=False)
+
+
+@router.get('/{request_id}',response_model=RoleRequestOutput)
+async def host_request(room_id:UUID,request_id:UUID,user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
+    await require_room_host(db,room_id,user.id)
+    saved=await db.get(RoleRequest,request_id)
+    if saved is None or saved.room_id!=room_id:raise HTTPException(status_code=404,detail='Không có yêu cầu này')
+    sender=await db.get(User,saved.user_id)
+    return RoleRequestOutput(**{key:getattr(saved,key) for key in RoleRequestOutput.model_fields if key!='sender_name'},sender_name=sender.display_name)
 
 
 @router.get("/{request_id}/linkable-actions", response_model=list[LinkableAction])
@@ -279,7 +305,7 @@ async def review_role_request(room_id: UUID, request_id: UUID, body: RoleRequest
                               user: User = Depends(current_user),
                               db: AsyncSession = Depends(get_db)) -> RoleRequestSendOutput:
     await require_room_host(db, room_id, user.id)
-    room = (await db.scalars(select(Room).where(Room.id == room_id).with_for_update())).one()
+    room = await lock_request_room(db,room_id,user)
     request = {"user_id": None, "request_id": str(request_id), "status": body.status,
                "reply_text": body.reply_text,
                "linked_event_ids": [str(value) for value in body.linked_event_ids]}
@@ -323,7 +349,7 @@ async def withdraw_role_request(room_id: UUID, request_id: UUID, body: RoleReque
                                 db: AsyncSession = Depends(get_db)) -> RoleRequestSendOutput:
     if await require_room_access(db, room_id, user.id):
         raise HTTPException(status_code=403, detail="Quản trò không thể rút yêu cầu")
-    room = (await db.scalars(select(Room).where(Room.id == room_id).with_for_update())).one()
+    room = await lock_request_room(db,room_id,user)
     request = {"user_id": str(user.id), "request_id": str(request_id)}
     prior = await db.scalar(select(GameEvent).where(
         GameEvent.room_id == room_id, GameEvent.client_request_id == body.client_request_id))

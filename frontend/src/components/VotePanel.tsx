@@ -1,3 +1,4 @@
+import { useRoomSignal } from './RoomRealtime'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, jsonBody, type Room, type VoteHostRound, type VoteReview, type VoteRound } from '../api'
 import { useRequestIds } from '../useRequestIds'
@@ -25,6 +26,7 @@ export default function VotePanel({ room, onRoomChanged }: {
   const [error, setError] = useState('')
   const requestIdFor = useRequestIds()
   const { ask, confirmationDialog } = useConfirmation()
+  const roomSignal=useRoomSignal(["vote"])
   const base = `/api/rooms/${room.id}/votes`
 
   useEffect(() => {
@@ -63,7 +65,7 @@ export default function VotePanel({ room, onRoomChanged }: {
     refresh()
     const timer = window.setInterval(refresh, 8000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [base, room.version, room.is_host, selectedRoundId])
+  }, [base, room.version, room.is_host, selectedRoundId, roomSignal])
 
   useEffect(() => setTargetId(''), [vote?.id])
   useEffect(() => {

@@ -1,0 +1,95 @@
+{
+  "scope": "UX3 first slice: real API, production frontend, disposable PostgreSQL14",
+  "checks": [
+    {
+      "case": "paginated-grouped-rows-day-phase-multiline-long-name",
+      "result": "pass"
+    },
+    {
+      "case": "prepend-anchor-and-incoming-message-do-not-jump-reader",
+      "result": "pass"
+    },
+    {
+      "case": "restore-channel-position-with-loaded-history",
+      "result": "pass"
+    },
+    {
+      "case": "jump-to-latest-and-follow-at-bottom",
+      "result": "pass"
+    },
+    {
+      "case": "shift-enter-ime-enter-send-and-alias-expansion",
+      "result": "pass"
+    },
+    {
+      "case": "drafts-channel-workspace-reload-user-isolation",
+      "result": "pass"
+    },
+    {
+      "case": "emoji-search-vietnamese-alias-family-recent-keyboard-focus",
+      "result": "pass"
+    },
+    {
+      "case": "html-literal-and-unicode-roundtrip",
+      "result": "pass"
+    },
+    {
+      "case": "lost-ack-retains-draft-reload-retry-idempotent",
+      "result": "pass"
+    },
+    {
+      "case": "late-ack-does-not-clear-new-draft",
+      "result": "pass"
+    },
+    {
+      "case": "original-phase-markers-survive-phase-transition",
+      "result": "pass"
+    },
+    {
+      "case": "fixed-composer-layout-1440",
+      "result": "pass",
+      "metrics": {
+        "width": 1440,
+        "height": 900,
+        "scrollWidth": 1440,
+        "scrollHeight": 900,
+        "composerBottom": 880
+      }
+    },
+    {
+      "case": "fixed-composer-layout-390",
+      "result": "pass",
+      "metrics": {
+        "width": 390,
+        "height": 844,
+        "scrollWidth": 390,
+        "scrollHeight": 844,
+        "composerBottom": 824
+      }
+    },
+    {
+      "case": "fixed-composer-layout-320",
+      "result": "pass",
+      "metrics": {
+        "width": 320,
+        "height": 480,
+        "scrollWidth": 320,
+        "scrollHeight": 480,
+        "composerBottom": 460
+      }
+    },
+    {
+      "case": "edit-delete-menu-and-delayed-edit-does-not-leak-into-general",
+      "result": "pass"
+    },
+    {
+      "case": "finished-readonly-transcript-original-edit-delete-retained-once",
+      "result": "pass"
+    },
+    {
+      "case": "logout-clears-private-drafts",
+      "result": "pass"
+    }
+  ],
+  "page_errors": []
+}

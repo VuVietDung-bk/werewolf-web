@@ -1,3 +1,4 @@
+import { useRoomSignal } from './RoomRealtime'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, jsonBody, type Role, type RoleAssignment, type RoleCatalog, type Room } from '../api'
 import { factionClass } from '../factions'
@@ -24,6 +25,7 @@ export default function RolePanel({ room, view, onRoomChanged }: {
   const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({})
   const [editingId, setEditingId] = useState<string | null>(null)
   const [setName, setSetName] = useState('')
+  const roomSignal=useRoomSignal(["roles"])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -56,7 +58,7 @@ export default function RolePanel({ room, view, onRoomChanged }: {
       else setAssignment(result as RoleAssignment | null)
     }).catch((cause) => { if (alive) setError(cause instanceof Error ? cause.message : 'Không tải được role.') })
     return () => { alive = false }
-  }, [room.id, room.version, room.is_host])
+  }, [room.id, room.version, room.is_host, roomSignal])
 
   useEffect(() => {
     if (room.is_host || !['playing', 'finished'].includes(room.status)) return

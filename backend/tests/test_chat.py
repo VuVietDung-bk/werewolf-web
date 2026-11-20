@@ -1,5 +1,7 @@
 """Chat persistence, pagination, and channel permissions across phase and team changes."""
 
+from legacy_read_services import service_get
+
 import asyncio
 from contextlib import AsyncExitStack
 from uuid import UUID, uuid4
@@ -48,7 +50,7 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
                 for client in (first, second, third):
                     assert (await post(client, "/api/rooms/join", {
                         "code": code, "accept_postgame_transcript": True})).status_code == 200
-                assert (await outsider.get(f"{chat}/messages?channel=common")).status_code == 403
+                assert (await service_get(outsider,f"{chat}/messages?channel=common")).status_code == 403
                 assert (await post(outsider, f"{chat}/messages", message("common", "Lén vào"))).status_code == 403
 
                 lobby = message("common", "Tin ở sảnh")
@@ -58,16 +60,18 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
                 assert (await post(first, f"{chat}/messages", {**lobby, "text": "Khác"})).status_code == 409
                 for index in range(32):
                     assert (await post(first, f"{chat}/messages", message("common", f"Sảnh {index}"))).status_code == 200
-                newest = (await second.get(f"{chat}/messages?channel=common")).json()
+                newest = (await service_get(second,f"{chat}/messages?channel=common")).json()
                 assert len(newest["messages"]) == 30 and newest["next_before_sequence"]
-                older = (await second.get(f"{chat}/messages?channel=common&before_sequence={newest['next_before_sequence']}")).json()
+                older = (await service_get(second,f"{chat}/messages?channel=common&before_sequence={newest['next_before_sequence']}")).json()
                 assert len(older["messages"]) == 3 and older["messages"][0]["text"] == "Tin ở sảnh"
                 assert older["next_before_sequence"] is None
-                forward = (await second.get(f"{chat}/messages?channel=common&after_sequence=0&limit=10")).json()
+                assert older["messages"][0]["phase_type"] is None
+                assert older["messages"][0]["round_number"] == 0
+                forward = (await service_get(second,f"{chat}/messages?channel=common&after_sequence=0&limit=10")).json()
                 assert len(forward["messages"]) == 10 and forward["next_after_sequence"]
                 assert forward["messages"][0]["text"] == "Tin ở sảnh"
-                assert (await second.get(f"{chat}/messages?channel=common&before_sequence=10&after_sequence=0")).status_code == 422
-                assert (await second.get(f"{chat}/messages?channel=common&limit=51")).status_code == 422
+                assert (await service_get(second,f"{chat}/messages?channel=common&before_sequence=10&after_sequence=0")).status_code == 422
+                assert (await service_get(second,f"{chat}/messages?channel=common&limit=51")).status_code == 422
 
                 for name, count, team, kind, contact in (
                     ("Sói thử", 2, "Bầy sói", "active", {"can_initiate": True, "initiate_phases": ["night"], "reply_allowed": True}),
@@ -83,25 +87,28 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
                     headers={"Origin": ORIGIN})).status_code == 200
                 assert (await post(second, f"{chat}/messages", message("common", "Sảnh đã đóng đăng ký"))).status_code == 200
                 assert (await post(host, f"{base}/roles/distribute-random")).status_code == 200
-                assigned = (await host.get(f"{base}/roles/assignments")).json()
+                assigned = (await service_get(host,f"{base}/roles/assignments")).json()
                 by_id = dict(zip(ids[1:4], clients[1:4]))
                 wolves = [item["user_id"] for item in assigned if item["role"]["team_chat_label"]]
                 villager = next(item["user_id"] for item in assigned if not item["role"]["team_chat_label"])
                 wolf_a, wolf_b = wolves
                 assert (await post(host, f"{base}/game/start")).status_code == 200
                 assert (await post(by_id[villager], f"{chat}/messages", message("common", "Ngày 0"))).status_code == 200
+                day_message = (await service_get(second,f"{chat}/messages?channel=common")).json()["messages"][-1]
+                assert (day_message["phase_type"], day_message["round_number"]) == ("day", 0)
+                assert "recipient_ids" not in day_message and "request" not in day_message
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Quá sớm"))).status_code == 403
                 assert (await post(by_id[villager], f"{chat}/messages", message("host", "Tôi muốn hỏi"))).status_code == 403
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("host", "Chưa đến đêm"))).status_code == 403
-                wolf_common_cursor = (await by_id[wolf_a].get(f"{chat}/messages?channel=common")).json()["room_cursor"]
+                wolf_common_cursor = (await service_get(by_id[wolf_a],f"{chat}/messages?channel=common")).json()["room_cursor"]
                 assert (await post(host, f"{chat}/messages", message("host", "Quản trò mở chat", participant_user_id=villager))).status_code == 200
-                assert (await by_id[wolf_a].get(f"{chat}/messages?channel=common")).json()["room_cursor"] == wolf_common_cursor
+                assert (await service_get(by_id[wolf_a],f"{chat}/messages?channel=common")).json()["room_cursor"] == wolf_common_cursor
                 assert (await post(by_id[villager], f"{chat}/messages", message("host", "Tôi trả lời"))).status_code == 200
-                assert (await by_id[wolf_a].get(f"{chat}/messages?channel=host&participant_user_id={villager}")).status_code == 403
-                assert (await by_id[wolf_a].get(f"{chat}/messages?channel=host")).json()["messages"] == []
-                assert [item["text"] for item in (await by_id[villager].get(f"{chat}/messages?channel=host")).json()["messages"]] == [
+                assert (await service_get(by_id[wolf_a],f"{chat}/messages?channel=host&participant_user_id={villager}")).status_code == 403
+                assert (await service_get(by_id[wolf_a],f"{chat}/messages?channel=host")).json()["messages"] == []
+                assert [item["text"] for item in (await service_get(by_id[villager],f"{chat}/messages?channel=host")).json()["messages"]] == [
                     "Quản trò mở chat", "Tôi trả lời"]
-                silent_role_id = next(item["id"] for item in (await host.get(f"{base}/role-catalog")).json()["roles"]
+                silent_role_id = next(item["id"] for item in (await service_get(host,f"{base}/role-catalog")).json()["roles"]
                                       if item["name"] == "Dân không đáp")
                 assert (await post(host, f"{base}/game/players/{villager}/actions", {
                     "client_request_id": str(uuid4()), "action": "change_role", "role_id": silent_role_id,
@@ -112,10 +119,17 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
                     "expected_phase_type": "day", "expected_round_number": 0})).status_code == 200
                 assert (await post(first, f"{chat}/messages", message("common", "Tin đêm"))).status_code == 403
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Tin bầy cũ"))).status_code == 200
-                assert [item["text"] for item in (await by_id[wolf_b].get(f"{chat}/messages?channel=team")).json()["messages"]] == ["Tin bầy cũ"]
-                assert (await by_id[villager].get(f"{chat}/messages?channel=team")).json()["messages"] == []
-                wolf_activity = (await by_id[wolf_b].get(f"{chat}/context")).json()["activity"]
-                villager_activity = (await by_id[villager].get(f"{chat}/context")).json()["activity"]
+                assert [item["text"] for item in (await service_get(by_id[wolf_b],f"{chat}/messages?channel=team")).json()["messages"]] == ["Tin bầy cũ"]
+                assert (await service_get(by_id[villager],f"{chat}/messages?channel=team")).json()["messages"] == []
+                # A sidebar filter narrows the historical recipient scope; it never grants another team's messages.
+                assert [item["text"] for item in (await service_get(by_id[wolf_b],
+                    f"{chat}/messages", params={"channel": "team", "team_label": "Bầy sói"})).json()["messages"]] == ["Tin bầy cũ"]
+                assert (await service_get(by_id[villager],f"{chat}/messages", params={
+                    "channel": "team", "team_label": "Bầy sói"})).json()["messages"] == []
+                assert (await service_get(by_id[wolf_b],f"{chat}/messages", params={
+                    "channel": "team", "team_label": "Không tồn tại"})).json()["messages"] == []
+                wolf_activity = (await service_get(by_id[wolf_b],f"{chat}/context")).json()["activity"]
+                villager_activity = (await service_get(by_id[villager],f"{chat}/context")).json()["activity"]
                 assert any(item["channel"] == "team" and item["team_label"] == "Bầy sói"
                            for item in wolf_activity)
                 assert not any(item["channel"] == "team" for item in villager_activity)
@@ -127,7 +141,7 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
                 mute_target = f"{chat}/players/{wolf_a}/mute"
                 assert (await host.patch(mute_target, json={"client_request_id": str(uuid4()),
                     "muted": True, "reason": "Kiểm tra đủ kênh"}, headers={"Origin": ORIGIN})).status_code == 200
-                muted_context = (await by_id[wolf_a].get(f"{chat}/context")).json()
+                muted_context = (await service_get(by_id[wolf_a],f"{chat}/context")).json()
                 assert muted_context["can_send_team"] is False and muted_context["can_send_host"] is False
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Bị chặn đội"))).status_code == 403
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("host", "Bị chặn riêng"))).status_code == 403
@@ -138,22 +152,22 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
                 assert (await post(host, f"{actions}/{wolf_b}/actions", {
                     "client_request_id": str(uuid4()), "action": "change_team", "text": "Đội mới", "reason": "Đổi phe"})).status_code == 200
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Sau khi B rời"))).status_code == 200
-                assert [item["text"] for item in (await by_id[wolf_b].get(f"{chat}/messages?channel=team")).json()["messages"]] == ["Tin bầy cũ"]
-                old_team_activity = (await by_id[wolf_b].get(f"{chat}/context")).json()["activity"]
+                assert [item["text"] for item in (await service_get(by_id[wolf_b],f"{chat}/messages?channel=team")).json()["messages"]] == ["Tin bầy cũ"]
+                old_team_activity = (await service_get(by_id[wolf_b],f"{chat}/context")).json()["activity"]
                 assert any(item["channel"] == "team" and item["team_label"] == "Bầy sói"
                            for item in old_team_activity)
                 assert (await post(host, f"{actions}/{villager}/actions", {
                     "client_request_id": str(uuid4()), "action": "change_team", "text": "Bầy sói", "reason": "Gia nhập"})).status_code == 200
-                assert [item["text"] for item in (await by_id[villager].get(f"{chat}/messages?channel=team")).json()["messages"]] == []
+                assert [item["text"] for item in (await service_get(by_id[villager],f"{chat}/messages?channel=team")).json()["messages"]] == []
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Sau khi C vào"))).status_code == 200
-                assert [item["text"] for item in (await by_id[villager].get(f"{chat}/messages?channel=team")).json()["messages"]] == ["Sau khi C vào"]
+                assert [item["text"] for item in (await service_get(by_id[villager],f"{chat}/messages?channel=team")).json()["messages"]] == ["Sau khi C vào"]
                 assert (await post(host, f"{actions}/{wolf_a}/actions", {
                     "client_request_id": str(uuid4()), "action": "kill", "reason": "Kiểm tra quyền"})).status_code == 200
-                assert (await by_id[wolf_a].get(f"{chat}/context")).json()["can_send_team"] is False
+                assert (await service_get(by_id[wolf_a],f"{chat}/context")).json()["can_send_team"] is False
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Chết vẫn nhắn"))).status_code == 403
                 assert (await post(host, f"{chat}/messages", message("team", "Host gửi đội", team_label="Bầy sói"))).status_code == 200
-                assert "Host gửi đội" not in [item["text"] for item in (await by_id[wolf_a].get(f"{chat}/messages?channel=team")).json()["messages"]]
-                assert "Host gửi đội" in [item["text"] for item in (await by_id[villager].get(f"{chat}/messages?channel=team")).json()["messages"]]
+                assert "Host gửi đội" not in [item["text"] for item in (await service_get(by_id[wolf_a],f"{chat}/messages?channel=team")).json()["messages"]]
+                assert "Host gửi đội" in [item["text"] for item in (await service_get(by_id[villager],f"{chat}/messages?channel=team")).json()["messages"]]
 
                 assert (await post(host, f"{base}/game/pause", {"reason": "Nghỉ"})).status_code == 200
                 assert (await post(first, f"{chat}/messages", message("common", "Nói lúc pause"))).status_code == 409
@@ -163,7 +177,7 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
                 assert (await post(host, f"{base}/game/resume")).status_code == 200
                 assert (await post(host, f"{base}/game/advance", {
                     "expected_phase_type": "night", "expected_round_number": 1})).status_code == 200
-                assert (await by_id[wolf_a].get(f"{chat}/context")).json()["can_send_common"] is False
+                assert (await service_get(by_id[wolf_a],f"{chat}/context")).json()["can_send_common"] is False
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("common", "Chết nói ngày"))).status_code == 403
                 policy = {"client_request_id": str(uuid4()), "common_send_at_night": True,
                           "team_send_in_day": True, "dead_common_send": True,
@@ -174,11 +188,11 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
                 assert (await host.patch(f"{chat}/policy", json=policy, headers={"Origin": ORIGIN})).json()["repeated"]
                 assert (await host.patch(f"{chat}/policy", json={**policy, "reason": "Khác"},
                                          headers={"Origin": ORIGIN})).status_code == 409
-                assert (await by_id[wolf_a].get(f"{chat}/context")).json()["can_send_common"] is True
+                assert (await service_get(by_id[wolf_a],f"{chat}/context")).json()["can_send_common"] is True
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("common", "Chết nói theo luật"))).status_code == 200
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("team", "Chết nói đội ban ngày"))).status_code == 200
                 assert "Chết nói đội ban ngày" in [item["text"] for item in (
-                    await by_id[villager].get(f"{chat}/messages?channel=team")).json()["messages"]]
+                    await service_get(by_id[villager],f"{chat}/messages?channel=team")).json()["messages"]]
                 default_policy = {**policy, "client_request_id": str(uuid4()),
                                   "common_send_at_night": False, "team_send_in_day": False,
                                   "dead_common_send": False, "dead_team_send": False,
@@ -186,7 +200,7 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
                 assert (await host.patch(f"{chat}/policy", json=default_policy,
                                          headers={"Origin": ORIGIN})).status_code == 200
                 assert (await post(by_id[wolf_a], f"{chat}/messages", message("common", "Lại bị chặn"))).status_code == 403
-                assert (await by_id[wolf_a].get(f"{chat}/messages?channel=team")).json()["messages"][-1]["text"] == "Chết nói đội ban ngày"
+                assert (await service_get(by_id[wolf_a],f"{chat}/messages?channel=team")).json()["messages"][-1]["text"] == "Chết nói đội ban ngày"
                 async with session_factory()() as db:
                     changes = (await db.scalars(select(GameEvent).where(
                         GameEvent.room_id == UUID(room_id), GameEvent.kind == "chat.policy_changed"
@@ -202,7 +216,7 @@ def test_chat_permissions_and_history(monkeypatch) -> None:
 
                 async with httpx.AsyncClient(transport=transport, base_url="http://test",
                                              cookies={COOKIE_NAME: first.cookies.get(COOKIE_NAME)}) as restored:
-                    assert (await restored.get(f"{chat}/messages?channel=common&limit=50")).json()["messages"][0]["text"] == "Tin ở sảnh"
+                    assert (await service_get(restored,f"{chat}/messages?channel=common&limit=50")).json()["messages"][0]["text"] == "Tin ở sảnh"
             finally:
                 if room_id:
                     async with session_factory()() as db:
@@ -248,7 +262,7 @@ def test_common_chat_during_role_draft() -> None:
                 assert started.status_code == 200 and started.json()["status"] == "drafting"
                 chat = f"{base}/chat/messages"
                 assert (await post(first, chat, message("common", "Đang chọn role"))).status_code == 200
-                assert [item["text"] for item in (await second.get(f"{chat}?channel=common")).json()["messages"]] == ["Đang chọn role"]
+                assert [item["text"] for item in (await service_get(second,f"{chat}?channel=common")).json()["messages"]] == ["Đang chọn role"]
             finally:
                 if room_id:
                     async with session_factory()() as db:

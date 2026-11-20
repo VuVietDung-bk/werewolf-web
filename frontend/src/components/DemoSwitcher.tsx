@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, jsonBody, type Identity } from '../api'
+import { clearChatSession } from './chat/state'
 
 type DemoActor = { id: string; name: string; kind: 'host' | 'player'; seat: number | null }
 type DemoInfo = { room_id: string; room_name: string; actors: DemoActor[] }
@@ -38,6 +39,7 @@ export default function DemoSwitcher({ identity }: { identity: Identity | null }
     try {
       await api('/api/dev/demo/switch', { method: 'POST',
         headers: { 'X-Demo-Key': key }, body: jsonBody({ actor_id: selected }) })
+      clearChatSession()
       window.localStorage.setItem('ma-soi-active-room', info.room_id)
       window.location.reload()
     } catch (cause) {

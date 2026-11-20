@@ -114,8 +114,9 @@ async def change_content(room_id: UUID, source_event_id: UUID, body: ContentChan
         ChatMessage.room_id == room_id, ChatMessage.event_id == source_event_id)) if is_chat else None
     if not is_notice and not is_private and chat is None:
         raise HTTPException(status_code=409, detail="Sự kiện này không phải tin nhắn hoặc thông báo có thể sửa")
-    if is_private and await db.scalar(select(PrivateMessage.id).where(
-        PrivateMessage.room_id == room_id, PrivateMessage.event_id == source_event_id)) is None:
+    private = await db.scalar(select(PrivateMessage).where(
+        PrivateMessage.room_id == room_id, PrivateMessage.event_id == source_event_id)) if is_private else None
+    if is_private and private is None:
         raise HTTPException(status_code=409, detail="Không tìm thấy tin nhắn gốc")
     if body.action == "edit":
         if (is_private or is_chat) and not body.text:
@@ -169,6 +170,13 @@ async def change_content(room_id: UUID, source_event_id: UUID, body: ContentChan
         chat.updated_sequence = update.sequence
         public_event_id = update.id
         decision.payload = {**decision.payload, "public_event_id": str(update.id)}
+    elif private is not None:
+        update = await append_event(db, room_id, user.id, "chat.revised", "host",
+                                    {"source_event_id": str(source_event_id),
+                                     "source_kind": "private_message", "action": body.action,
+                                     "channel": "host", "team_label": None,
+                                     "participant_user_id": str(private.user_id), "recipient_ids": []})
+        private.updated_sequence = update.sequence
     await db.commit()
     return ContentChangeOutput(event_id=decision.id, repeated=False,
                                public_event_id=public_event_id)

@@ -1,0 +1,46 @@
+{
+  "scope": "server chat read checkpoints: real Chromium/HTTP/WS/PostgreSQL14",
+  "checks": [
+    {
+      "case": "initial-bottom-viewport-acknowledges-delivered-history",
+      "result": "pass"
+    },
+    {
+      "case": "loaded-offscreen-item-remains-unread-on-server-and-two-sessions",
+      "result": "pass"
+    },
+    {
+      "case": "viewport-read-persists-and-clears-other-session-badge",
+      "result": "pass"
+    },
+    {
+      "case": "clearing-browser-storage-and-reload-keeps-server-read-state",
+      "result": "pass"
+    },
+    {
+      "case": "open-modal-blocks-ack-until-chat-is-visible-again",
+      "result": "pass"
+    },
+    {
+      "case": "simulated-hidden-document-blocks-ack-and-recovers-on-visibilitychange",
+      "result": "pass"
+    },
+    {
+      "case": "new-arrival-during-delayed-ack-stays-unread-until-actually-seen",
+      "result": "pass"
+    },
+    {
+      "case": "failed-read-ack-retries-without-losing-unread-state",
+      "result": "pass"
+    },
+    {
+      "case": "unrelated-private-activity-does-not-change-catalog-or-unread",
+      "result": "pass"
+    },
+    {
+      "case": "deleting-the-only-unread-item-clears-badge-without-forged-read",
+      "result": "pass"
+    }
+  ],
+  "page_errors": []
+}

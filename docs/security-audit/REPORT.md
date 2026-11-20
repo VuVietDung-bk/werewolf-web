@@ -13,6 +13,12 @@ Báo cáo bên dưới là ảnh chụp kết luận audit trước khi sửa m�
 
 Đã thêm hạn mức **128 icon và 32 MiB/phòng**, chặn icon sau chuẩn hóa vượt 1 MiB, và chỉ sao chép icon đang được role sử dụng khi mở ván mới. Script retention lặp các lô 100 phòng đến khi hết dữ liệu đủ hạn. Tin nhắn của quản trò có nhãn riêng dựa trên `host_id`. Các chỉnh sửa này chưa được chạy test trong môi trường cô lập của audit; trạng thái xác minh production và các ứng viên khác vẫn ở [NEEDS-VALIDATION.md](NEEDS-VALIDATION.md).
 
+## Cập nhật UX3 · 2026-11-20
+
+Phát hiện metadata hoạt động kín đã được xử lý cho người chơi trong trận: timeline/changes/sync/live v2 dùng cursor opaque và delivery theo actor; read state/request receipt cũng theo actor. Đường đọc numeric cũ của player trả 426, WS cũ đóng 4406 không phát ready/cursor. Chat context và thông báo/đính chính công khai không trả global ordinal cho player. GM và thành viên có consent sau trận còn được dùng số nhật ký theo quyền xem toàn bộ.
+
+[Biên bản UX3 và kiểm chứng API/WS/browser](../ux-3/completion.md) ghi phạm vi, rollout và giới hạn. Đây là xử lý phát hiện low về metadata, không đóng các ứng viên tài nguyên hoặc các mục cần xác minh deployment trong NEEDS-VALIDATION.md. Các kết luận bên dưới giữ lại như bằng chứng lịch sử trước bản sửa.
+
 ## Tư thế bảo mật nhìn từ mã nguồn
 
 Các kiểm tra phiên, Origin, quyền quản trò/thành viên và phạm vi chat nhìn chung được đặt ở phía server. Phát hiện đã xác nhận là rò rỉ **siêu dữ liệu hoạt động kín** qua cursor toàn cục; không thấy nội dung tin kín bị trả trong đường đi này. Các nguy cơ tài nguyên, giả mạo nhãn UI và tồn đọng lưu trữ cần kiểm chứng thêm trước khi gọi là lỗ hổng.

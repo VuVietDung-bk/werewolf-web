@@ -1,3 +1,4 @@
+import { useRoomSignal } from './RoomRealtime'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, jsonBody, type DeathNotice, type LinkableAnnouncementEvent, type PlayerBoardItem, type PublicAnnouncement, type PublicCorrection, type PublicVoteNotice, type Room, type ScheduledAnnouncement } from '../api'
 import { useRequestIds } from '../useRequestIds'
@@ -68,6 +69,7 @@ function NoticeRevisionHistory({ roomId }: { roomId: string }) {
 export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
   room: Room; onRoomChanged: () => Promise<void>; onOpenBoard: () => void
 }) {
+  const roomSignal=useRoomSignal(["announcements", "management"])
   const [notices, setNotices] = useState<DeathNotice[]>([])
   const [announcements, setAnnouncements] = useState<PublicAnnouncement[]>([])
   const [corrections, setCorrections] = useState<PublicCorrection[]>([])
@@ -126,7 +128,7 @@ export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
       if (active) setError(cause instanceof Error ? cause.message : 'Không tải được thông báo.')
     })
     return () => { active = false }
-  }, [room.id, room.version])
+  }, [room.id, room.version, roomSignal])
 
   useEffect(() => {
     if (!room.is_host || room.status !== 'playing') return
@@ -135,7 +137,7 @@ export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
       .then((items) => { if (active) setLinkableEvents(items) })
       .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Không tải được thao tác liên kết.') })
     return () => { active = false }
-  }, [room.id, room.version, room.is_host, room.status])
+  }, [room.id, room.version, room.is_host, room.status, roomSignal])
 
   async function publishAnnouncement(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -383,7 +385,7 @@ export default function DeathNotices({ room, onRoomChanged, onOpenBoard }: {
       </li>)}</ol></>}
     {corrections.length > 0 && <><h3>Đính chính công khai</h3>
       <ol className="public-notice-list">{corrections.map((item) => <li key={item.id}>
-        <small><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString('vi-VN')}</time> · Sự kiện #{item.source_sequence}</small>
+        <small><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString('vi-VN')}</time>{item.source_sequence!=null&&<> · Sự kiện #{item.source_sequence}</>}</small>
         <strong className="notice-heading"><NoticeGlyph kind="correction" size={20} />Đính chính</strong>{item.edited_at && <small>Đã sửa</small>}
         {editingId === item.id ? <form className="stack-form inline-edit-form"
           onSubmit={(event) => { event.preventDefault(); void changePublicContent(item.id,

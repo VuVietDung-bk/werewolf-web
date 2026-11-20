@@ -1,0 +1,15 @@
+{
+  "migration": "0030_room_deliveries",
+  "result": "pass",
+  "checks": [
+    "25 historical events preserve provable latest membership intervals",
+    "team audiences use saved recipients; absent metadata fails closed",
+    "DM/request/self actions/secret ballot remain recipient-scoped; unknown private events host-only",
+    "positions contiguous per recipient and source identity unique",
+    "scopes/channel UUIDs agree with current write contract",
+    "source events unchanged and no outbox/new announcement created",
+    "downgrade and re-upgrade keep source data and audience",
+    "room deletion cascades delivery streams and rows"
+  ],
+  "database": "separate temporary PostgreSQL14 database, deleted afterwards"
+}

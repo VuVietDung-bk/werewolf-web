@@ -1,0 +1,12 @@
+{
+  "migration": "0029_room_channels",
+  "checks": [
+    "common/announcement/vote and participant DM backfilled",
+    "teams from templates, snapshots, overrides and history backfilled",
+    "identities deduplicated with unique UUIDs",
+    "source events, text and IDs unchanged; no unread event created",
+    "downgrade and re-upgrade keep all source data"
+  ],
+  "result": "pass",
+  "database": "separate temporary PostgreSQL14 database, deleted afterwards"
+}

@@ -135,7 +135,7 @@ def may_receive(event: GameEvent, user_id: UUID, host_id: UUID,
         if chat.channel == "team":
             return str(user_id) in chat.recipient_ids
         return chat.participant_user_id == user_id
-    if event.kind == "chat.revised":
+    if event.kind in {"chat.revised", "chat.reaction_changed"}:
         if event.payload.get("channel") == "common":
             return True
         if event.payload.get("channel") == "team":
@@ -240,26 +240,6 @@ async def room_live(websocket: WebSocket, room_id: UUID) -> None:
         except HTTPException as error:
             await websocket.close(code=4404 if error.status_code == 404 else 4403)
             return
-        room = await db.get(Room, room_id)
-        raw_cursor = websocket.query_params.get("after_sequence")
-        if raw_cursor is not None and (not raw_cursor.isascii() or not raw_cursor.isdecimal()
-                                       or len(raw_cursor) > 20):
-            await websocket.close(code=4400)
-            return
-        cursor = min(int(raw_cursor), room.version) if raw_cursor is not None else room.version
-        connection = Connection(websocket=websocket, user_id=user.id,
-                                session_id=session.id, cursor=cursor)
-        host_id = room.owner_user_id
+    # Legacy numeric replay is retired for every client. No ready/cursor frame.
     await websocket.accept()
-    await websocket.send_json({"type": "ready", "cursor": cursor})
-    await hub.add(room_id, host_id, connection)
-    try:
-        while True:
-            data = await websocket.receive()
-            if data["type"] == "websocket.disconnect":
-                break
-            # Notifications are server-to-client only; do not accept client commands here.
-            await websocket.close(code=1003)
-            break
-    finally:
-        await hub.remove(room_id, connection)
+    await websocket.close(code=4406)

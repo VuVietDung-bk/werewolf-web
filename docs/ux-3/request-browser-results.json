@@ -1,0 +1,17 @@
+{
+  "scope": "UX3 requests and legacy boundaries: Chromium + real API/PostgreSQL14",
+  "checks": [
+    "request-is-one-private-source-with-safe-unicode-and-no-fake-host-badge",
+    "plain-chat-is-not-a-role-request-and-queue-shares-canonical-id",
+    "review-dialog-updates-existing-card-and-moderator-queue-without-copy",
+    "withdraw-updates-same-item-and-queue-in-realtime",
+    "lost-ack-keeps-draft-and-request-id-across-reload-without-extra-source",
+    "request-review-unread-follows-visible-revision-and-modal-blocks-ack",
+    "passive-role-cannot-submit-request-and-ordinary-dm-policy-is-independent",
+    "role-request-phase-gate-remains-server-derived",
+    "player-ui-uses-v2-and-legacy-http-ws-cannot-expose-numeric-metadata",
+    "postgame-expands-request-history-under-consent-and-locks-actions",
+    "request-cards-fit-mobile-320px"
+  ],
+  "page_errors": []
+}

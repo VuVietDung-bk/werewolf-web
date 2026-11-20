@@ -1,0 +1,15 @@
+{
+  "migration": "0031_channel_reads",
+  "result": "pass",
+  "checks": [
+    "existing chat and private history initialized at delivered actor/channel boundary",
+    "old team membership comes only from saved delivery, not current role",
+    "recipient without team/DM deliveries receives no inferred read checkpoint",
+    "read position uses private delivery order, not room sequence",
+    "source text/IDs/events unchanged and no outbox event created",
+    "negative positions rejected",
+    "downgrade/re-upgrade preserves source data",
+    "room retention cascades read checkpoints"
+  ],
+  "database": "isolated temporary PostgreSQL14 database, deleted afterwards"
+}

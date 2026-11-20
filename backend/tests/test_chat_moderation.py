@@ -1,5 +1,7 @@
 """Rate limiting, literal text, and host moderation across chat channels."""
 
+from legacy_read_services import service_get
+
 import asyncio
 from contextlib import AsyncExitStack
 from uuid import UUID, uuid4
@@ -57,7 +59,7 @@ def test_rate_limit_literal_text_and_host_mute(monkeypatch) -> None:
                 monkeypatch.setattr(chat, "CHAT_MINUTE_LIMIT", 2)
                 minute_limited = await post(first, f"{chat_base}/messages", message("common", "Ba"))
                 assert minute_limited.status_code == 429 and minute_limited.headers["Retry-After"] == "60"
-                assert (await second.get(f"{chat_base}/messages?channel=common")).json()["messages"][0]["text"] == literal
+                assert (await service_get(second,f"{chat_base}/messages?channel=common")).json()["messages"][0]["text"] == literal
                 assert (await post(first, f"{chat_base}/messages", message("common", "x" * 2001))).status_code == 422
 
                 monkeypatch.setattr(chat, "CHAT_MINUTE_LIMIT", 100)
@@ -69,14 +71,14 @@ def test_rate_limit_literal_text_and_host_mute(monkeypatch) -> None:
                 assert muted.status_code == 200 and not muted.json()["repeated"]
                 assert (await host.patch(target, json=payload, headers={"Origin": ORIGIN})).json()["repeated"]
                 assert (await host.patch(target, json={**payload, "reason": "Khác"}, headers={"Origin": ORIGIN})).status_code == 409
-                context = (await first.get(f"{chat_base}/context")).json()
+                context = (await service_get(first,f"{chat_base}/context")).json()
                 assert context["is_muted"] and context["mute_reason"] == "Tạm nghỉ"
                 assert not context["can_send_common"]
                 assert (await post(first, f"{chat_base}/messages", message("common", "Bị chặn"))).status_code == 403
-                assert (await first.get(f"{chat_base}/messages?channel=common")).status_code == 200
-                host_context = (await host.get(f"{chat_base}/context")).json()
+                assert (await service_get(first,f"{chat_base}/messages?channel=common")).status_code == 200
+                host_context = (await service_get(host,f"{chat_base}/context")).json()
                 assert host_context["muted_players"] == [{"user_id": ids[1], "reason": "Tạm nghỉ"}]
-                assert (await second.get(f"{chat_base}/context")).json()["muted_players"] == []
+                assert (await service_get(second,f"{chat_base}/context")).json()["muted_players"] == []
                 async with session_factory()() as db:
                     event = await db.get(GameEvent, UUID(muted.json()["event_id"]))
                     assert event.visibility == "host" and event.payload["request"]["user_id"] == ids[1]
@@ -84,7 +86,7 @@ def test_rate_limit_literal_text_and_host_mute(monkeypatch) -> None:
                 opened = await host.patch(target, json={"client_request_id": str(uuid4()),
                     "muted": False, "reason": "Đã trao đổi"}, headers={"Origin": ORIGIN})
                 assert opened.status_code == 200
-                assert (await first.get(f"{chat_base}/context")).json()["is_muted"] is False
+                assert (await service_get(first,f"{chat_base}/context")).json()["is_muted"] is False
                 assert (await post(first, f"{chat_base}/messages", message("common", "Đã quay lại"))).status_code == 200
             finally:
                 if room_id:
@@ -128,7 +130,7 @@ def test_host_chat_revisions_current_view_and_postgame_history() -> None:
                     "name": "Sửa chat", "seat_limit": 2, "registration_open": False},
                     headers={"Origin": ORIGIN})).status_code == 200
                 assert (await post(host, f"{base}/roles/distribute-random")).status_code == 200
-                assignments = (await host.get(f"{base}/roles/assignments")).json()
+                assignments = (await service_get(host,f"{base}/roles/assignments")).json()
                 wolf_id = next(item["user_id"] for item in assignments if item["role"]["team_chat_label"])
                 wolf_client = wolf if wolf_id == ids[1] else villager
                 other_client = villager if wolf_client is wolf else wolf
@@ -151,42 +153,42 @@ def test_host_chat_revisions_current_view_and_postgame_history() -> None:
                     "client_request_id": str(uuid4()), "action": "edit", "text": "Không được"})).status_code == 409
                 assert (await post(wolf_client, f"{content}/{common_event}/revisions", {
                     "client_request_id": str(uuid4()), "action": "edit", "text": "Không được"})).status_code == 403
-                cursor = (await wolf_client.get(f"{chat_base}/messages?channel=common")).json()["room_cursor"]
+                cursor = (await service_get(wolf_client,f"{chat_base}/messages?channel=common")).json()["room_cursor"]
                 edit_body = {"client_request_id": str(uuid4()), "action": "edit", "text": "Tin mới"}
                 changed = await post(host, f"{content}/{common_event}/revisions", edit_body)
                 assert changed.status_code == 200, changed.text
                 assert (await post(host, f"{content}/{common_event}/revisions", edit_body)).json()["repeated"]
                 assert (await post(host, f"{content}/{common_event}/revisions", {
                     **edit_body, "text": "Khác"})).status_code == 409
-                page = (await wolf_client.get(f"{chat_base}/messages?channel=common")).json()
+                page = (await service_get(wolf_client,f"{chat_base}/messages?channel=common")).json()
                 assert next(item for item in page["messages"] if item["event_id"] == common_event)["text"] == "Tin mới"
-                updated = (await wolf_client.get(f"{chat_base}/messages?channel=common&after_updated_sequence={cursor}")).json()
+                updated = (await service_get(wolf_client,f"{chat_base}/messages?channel=common&after_updated_sequence={cursor}")).json()
                 assert [item["text"] for item in updated["messages"]] == ["Tin mới"]
                 assert updated["messages"][0]["edited_at"]
                 assert (await post(host, f"{content}/{team_event}/revisions", {
                     "client_request_id": str(uuid4()), "action": "edit", "text": "Tin đội mới"})).status_code == 200
-                assert (await wolf_client.get(f"{chat_base}/messages?channel=team")).json()["messages"][0]["text"] == "Tin đội mới"
-                assert (await other_client.get(f"{chat_base}/messages?channel=team")).json()["messages"] == []
-                assert (await other_client.get(f"{chat_base}/messages?channel=team&after_updated_sequence=0")).json()["messages"] == []
+                assert (await service_get(wolf_client,f"{chat_base}/messages?channel=team")).json()["messages"][0]["text"] == "Tin đội mới"
+                assert (await service_get(other_client,f"{chat_base}/messages?channel=team")).json()["messages"] == []
+                assert (await service_get(other_client,f"{chat_base}/messages?channel=team&after_updated_sequence=0")).json()["messages"] == []
                 assert (await post(host, f"{content}/{private_event}/revisions", {
                     "client_request_id": str(uuid4()), "action": "edit", "text": "Tin riêng mới"})).status_code == 200
-                assert (await wolf_client.get(f"{chat_base}/messages?channel=host")).json()["messages"][0]["text"] == "Tin riêng mới"
-                assert (await other_client.get(f"{chat_base}/messages?channel=host")).json()["messages"] == []
+                assert (await service_get(wolf_client,f"{chat_base}/messages?channel=host")).json()["messages"][0]["text"] == "Tin riêng mới"
+                assert (await service_get(other_client,f"{chat_base}/messages?channel=host")).json()["messages"] == []
                 notice_event = (await post(host, f"{base}/game/events/announcements", {
                     "client_request_id": str(uuid4()), "text": "Thông báo gốc"})).json()["event_id"]
                 assert (await post(host, f"{content}/{notice_event}/revisions", {
                     "client_request_id": str(uuid4()), "action": "edit", "text": "Thông báo mới"})).status_code == 200
                 assert (await post(host, f"{content}/{notice_event}/revisions", {
                     "client_request_id": str(uuid4()), "action": "delete"})).status_code == 200
-                assert (await wolf_client.get(f"{content}/history")).status_code == 409
+                assert (await service_get(wolf_client,f"{content}/history")).status_code == 409
                 deletion = await post(host, f"{content}/{common_event}/revisions", {
                     "client_request_id": str(uuid4()), "action": "delete"})
                 assert deletion.status_code == 200
                 assert (await post(host, f"{content}/{common_event}/revisions", {
                     "client_request_id": str(uuid4()), "action": "edit", "text": "Hồi lại"})).status_code == 409
-                current = (await wolf_client.get(f"{chat_base}/messages?channel=common")).json()["messages"]
+                current = (await service_get(wolf_client,f"{chat_base}/messages?channel=common")).json()["messages"]
                 assert common_event not in [item["event_id"] for item in current]
-                tombstone = (await wolf_client.get(f"{chat_base}/messages?channel=common&after_updated_sequence={cursor}")).json()["messages"]
+                tombstone = (await service_get(wolf_client,f"{chat_base}/messages?channel=common&after_updated_sequence={cursor}")).json()["messages"]
                 assert len(tombstone) == 1 and tombstone[0]["deleted"] and tombstone[0]["text"] == ""
                 async with session_factory()() as db:
                     update = await db.get(GameEvent, UUID(deletion.json()["public_event_id"]))
@@ -204,23 +206,23 @@ def test_host_chat_revisions_current_view_and_postgame_history() -> None:
                     assert (await db.scalar(select(Outbox.id).where(Outbox.event_id == update.id))) is not None
                 assert (await post(host, f"{base}/game/finish", {
                     "result_label": "Kết thúc", "result_reason": "Kiểm tra lịch sử"})).status_code == 200
-                history = (await other_client.get(f"{chat_base}/messages?channel=common")).json()["messages"]
+                history = (await service_get(other_client,f"{chat_base}/messages?channel=common")).json()["messages"]
                 deleted = next(item for item in history if item["event_id"] == common_event)
                 assert deleted["deleted"] and [item["action"] for item in deleted["history"]] == ["send", "edit", "delete"]
                 assert [item["text"] for item in deleted["history"]] == ["Tin gốc", "Tin mới", None]
-                assert len((await other_client.get(f"{chat_base}/messages?channel=team")).json()["messages"]) == 1
-                assert len((await other_client.get(f"{chat_base}/messages?channel=host")).json()["messages"]) == 1
-                assert (await outsider.get(f"{chat_base}/messages?channel=host")).status_code == 403
-                notice_history = (await other_client.get(f"{content}/history?limit=1")).json()
+                assert len((await service_get(other_client,f"{chat_base}/messages?channel=team")).json()["messages"]) == 1
+                assert len((await service_get(other_client,f"{chat_base}/messages?channel=host")).json()["messages"]) == 1
+                assert (await service_get(outsider,f"{chat_base}/messages?channel=host")).status_code == 403
+                notice_history = (await service_get(other_client,f"{content}/history?limit=1")).json()
                 assert notice_history["items"][0]["action"] == "delete"
                 assert notice_history["items"][0]["previous_text"] == "Thông báo mới"
                 assert notice_history["next_before_sequence"]
-                older_history = (await other_client.get(
+                older_history = (await service_get(other_client,
                     f"{content}/history?limit=1&before_sequence={notice_history['next_before_sequence']}")).json()
                 assert older_history["items"][0]["action"] == "edit"
                 assert older_history["items"][0]["previous_text"] == "Thông báo gốc"
                 assert older_history["items"][0]["new_text"] == "Thông báo mới"
-                assert (await outsider.get(f"{content}/history")).status_code == 403
+                assert (await service_get(outsider,f"{content}/history")).status_code == 403
             finally:
                 if room_id:
                     async with session_factory()() as db:

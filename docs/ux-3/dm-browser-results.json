@@ -1,0 +1,34 @@
+{
+  "scope": "UX3 second slice: real API/Chromium/disposable PostgreSQL14",
+  "checks": [
+    {
+      "case": "one-way-message-opens-passive-reply-both-sides-share-timeline-no-other-player",
+      "result": "pass"
+    },
+    {
+      "case": "one-paginated-source-for-both-perspectives-no-duplicate-no-legacy-inbox-read",
+      "result": "pass"
+    },
+    {
+      "case": "host-menu-edit-delete-private-source-live-player-and-no-leak",
+      "result": "pass"
+    },
+    {
+      "case": "one-way-private-message-shares-dm-unread-and-read-boundary",
+      "result": "pass"
+    },
+    {
+      "case": "former-team-channel-retains-only-delivered-history-readonly",
+      "result": "pass"
+    },
+    {
+      "case": "host-can-reopen-departed-dm-history-cannot-send",
+      "result": "pass"
+    },
+    {
+      "case": "postgame-other-player-opens-departed-dm-full-revisions-and-expanded-team",
+      "result": "pass"
+    }
+  ],
+  "page_errors": []
+}

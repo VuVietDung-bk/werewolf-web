@@ -1,0 +1,81 @@
+/* The viewport shell owns the height; only the timeline scrolls. */
+.chat-panel .u3-timeline-wrap { position: relative; flex: 1 1 0; min-height: 0; min-width: 0; display: flex; }
+.chat-panel .u3-timeline { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; overflow-anchor: none; scrollbar-color: #1e1f22 #313338; }
+.chat-panel .u3-message-list { display: block; max-height: none; min-height: 0; overflow: visible; margin: 0; padding: 8px 0 16px; }
+.chat-panel .u3-message-list > .u3-message { position: relative; display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 0 12px; border: 0; border-radius: 0; margin: 0; padding: 2px 48px 2px 16px; background: transparent; overflow-wrap: anywhere; }
+.chat-panel .u3-message-list > .u3-group-start { padding-top: 16px; }
+.chat-panel .u3-message-list > .u3-message:hover, .chat-panel .u3-message-list > .u3-message:focus-within { background: #2e3035; }
+.chat-panel .u3-message-list .u3-avatar { grid-column: 1; grid-row: 1; display: grid; place-items: center; align-self: start; width: 38px; height: 38px; border-radius: 50%; background: #5865a4; color: #fff; font-size: 19px; font-weight: 650; user-select: none; }
+.chat-panel .u3-message-list .u3-message-content { display: block; min-width: 0; color: #f2f3f5; font-size: 15px; }
+.chat-panel .u3-message-list .u3-message-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 7px; min-width: 0; line-height: 22px; }
+.chat-panel .u3-message-heading strong { font-size: 15px; font-weight: 650; }
+.chat-panel .u3-message-list .u3-message-heading time { margin: 0; color: #b5bac1; font-size: 11px; }
+.chat-panel .u3-message-heading small { color: #b5bac1; font-size: 11px; }
+.chat-panel .u3-message-list .u3-message-content > p { margin: 0; white-space: pre-wrap; line-height: 22px; font-size: 15px; color: #dbdee1; }
+.chat-panel .u3-message-content > p > small { color: #b5bac1; font-size: 10px; white-space: nowrap; }
+.chat-panel .u3-message-list .u3-compact-time { grid-column: 1; grid-row: 1; align-self: center; margin: 0; font-size: 10px; line-height: 22px; color: #b5bac1; opacity: 0; }
+.chat-panel .u3-message:hover .u3-compact-time, .chat-panel .u3-message:focus-within .u3-compact-time { opacity: 1; }
+.chat-panel .u3-message-list .u3-message-tools { position: absolute; right: 8px; top: 0; display: flex; gap: 2px; z-index: 2; }
+.chat-panel .u3-message-list > .u3-double-tools { padding-right: 82px; }
+.chat-panel .u3-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.chat-panel .u3-reactions .u3-reaction { display: inline-flex; align-items: center; gap: 5px; padding: 1px 6px; border: 1px solid #4e5058; border-radius: 6px; background: #2b2d31; color: #dbdee1; font-size: 13px; min-height: 26px; }
+.chat-panel .u3-reactions .u3-reaction.mine { background: #414675; border-color: #8d98fb; color: #fff; }
+.chat-panel .u3-reactions .u3-reaction:disabled { opacity: .8; cursor: default; }
+.chat-panel .u3-menu-trigger { padding: 0; width: 30px; min-height: 24px; border: 1px solid #4e5058; border-radius: 4px; background: #313338; color: #dbdee1; font-size: 20px; line-height: 22px; opacity: 0; }
+.chat-panel .u3-react-trigger { width: 34px; font-size: 16px; white-space: nowrap; }
+.chat-panel .u3-message:hover .u3-menu-trigger, .chat-panel .u3-message:focus-within .u3-menu-trigger { opacity: 1; }
+.chat-panel .u3-message-menu { position: absolute; right: 0; top: 26px; width: 140px; padding: 6px; background: #111214; border: 1px solid #4e5058; border-radius: 6px; box-shadow: 0 5px 15px #0006; }
+.chat-panel .u3-message-menu button { display: block; width: 100%; background: transparent; color: #dbdee1; border: 0; padding: 7px 10px; text-align: left; }
+.chat-panel .u3-message-menu button:hover, .chat-panel .u3-message-menu button:focus-visible { background: #5865f2; color: white; }
+.chat-panel .u3-message-list > .u3-marker { display: flex; align-items: center; gap: 8px; border: 0; border-radius: 0; padding: 20px 16px 4px; margin: 0; color: #b5bac1; font-size: 11px; font-weight: 650; background: transparent; }
+.chat-panel .u3-message-list > .u3-spacer { display: block; min-height: 0; padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; pointer-events: none; }
+.chat-panel .u3-marker::before, .chat-panel .u3-marker::after { content: ''; height: 1px; background: #484a50; flex: 1; }
+.chat-panel .u3-marker span { flex: 0 1 auto; text-align: center; }
+.chat-panel .u3-message-list .u3-history { font-size: 12px; color: #b5bac1; margin-top: 6px; }
+.chat-panel .u3-history li { background: transparent; border: 0; border-left: 2px solid #4e5058; border-radius: 0; margin: 4px 0; padding: 4px 8px; }
+.chat-panel .u3-history p { font-size: 13px; }
+.chat-panel .u3-edit { display: grid; gap: 5px; padding: 6px 0; }
+.chat-panel .u3-edit label { display: grid; gap: 4px; }
+.chat-panel .u3-edit textarea { width: 100%; min-height: 64px; background: #383a40; color: #f2f3f5; border: 1px solid #80848e; border-radius: 4px; padding: 8px; }
+.chat-panel .u3-edit button { margin-right: 6px; padding: 4px 10px; }
+.chat-panel .u3-load-older { display: block; margin: 10px auto; padding: 5px 12px; color: #dbdee1; background: #2b2d31; border: 1px solid #4e5058; font-size: 12px; }
+.chat-panel .u3-load-newer { margin-bottom: 54px; }
+.chat-panel .u3-request-label, .chat-panel .u3-request-status { display: block; color: #b5bac1; font-size: 12px; margin: 2px 0; }
+.chat-panel .u3-request-reply { padding: 5px 8px; border-left: 2px solid #8d98fb; }
+.chat-panel .u3-request-action { display: inline-block; padding: 3px 8px; margin-top: 4px; font-size: 12px; }
+.chat-panel .u3-request-open { flex: none; align-self: flex-start; margin: 0 12px 6px; padding: 4px 8px; font-size: 12px; }
+.chat-panel .u3-empty { color: #b5bac1; text-align: center; padding: 30px 12px; }
+.chat-panel .u3-new-messages { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); max-width: 95%; white-space: nowrap; border: 0; border-radius: 18px; background: #5865f2; color: white; padding: 6px 16px; box-shadow: 0 3px 10px #0006; font-size: 13px; z-index: 3; }
+.chat-panel .u3-composer-wrap { flex: none; padding: 8px 12px 6px; min-width: 0; }
+.chat-panel .chat-send.u3-composer { display: flex; align-items: flex-end; gap: 5px; margin: 0; padding: 4px; border: 0; border-radius: 8px; background: #383a40; }
+.chat-panel .u3-composer textarea { flex: 1; min-width: 0; width: 100%; min-height: 40px; max-height: 120px; margin: 0; padding: 8px 4px; border: 0; border-radius: 0; resize: none; overflow-y: auto; background: transparent; color: #f2f3f5; font: inherit; line-height: 24px; }
+.chat-panel .u3-composer textarea:focus { outline: none; box-shadow: none; }
+.chat-panel .u3-composer:focus-within { outline: 2px solid #8a94ff; outline-offset: 1px; }
+.chat-panel .u3-composer button { flex: none; display: grid; place-items: center; width: 36px; min-height: 40px; padding: 4px; border: 0; border-radius: 5px; font-size: 24px; color: #dbdee1; background: transparent; }
+.chat-panel .u3-composer .u3-send { font-size: 20px; color: #a9b0ff; }
+.chat-panel .u3-composer button:hover:enabled { background: #4e5058; }
+.chat-panel .u3-composer-help { display: flex; justify-content: space-between; gap: 8px; padding-top: 3px; color: #b5bac1; font-size: 10px; }
+.chat-panel > .form-message { flex: none; padding: 5px 14px; max-height: 70px; overflow-y: auto; font-size: 12px; }
+.u3-emoji-dialog { width: min(360px,calc(100vw - 24px)); max-height: min(560px,calc(100dvh - 24px)); padding: 16px; border: 1px solid #4e5058; border-radius: 9px; color: #dbdee1; background: #2b2d31; box-shadow: 0 8px 40px #0008; }
+.u3-emoji-dialog::backdrop { background: #0006; }
+.u3-emoji-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.u3-emoji-dialog h2 { font-size: 17px; margin: 0 0 10px; }
+.u3-emoji-dialog header button { padding: 4px 8px; border: 0; color: #dbdee1; background: transparent; }
+.u3-emoji-dialog input { width: 100%; padding: 9px; color: #f2f3f5; background: #1e1f22; border: 1px solid #80848e; border-radius: 4px; }
+.u3-emoji-results { max-height: min(370px,calc(100dvh - 190px)); overflow-y: auto; overscroll-behavior: contain; }
+.u3-emoji-results h3 { margin: 12px 0 6px; font-size: 12px; color: #b5bac1; }
+.u3-emoji-grid { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 3px; }
+.u3-emoji-grid button { min-width: 0; padding: 5px 0; font-family: 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif; font-size: 24px; background: transparent; border: 0; border-radius: 4px; }
+.u3-emoji-grid button:hover, .u3-emoji-grid button:focus-visible { background: #4e5058; }
+@media (hover: none), (pointer: coarse) {
+  .chat-panel .u3-menu-trigger, .chat-panel .u3-message-list .u3-compact-time { opacity: 1; }
+  .chat-panel .u3-menu-trigger { min-height: 32px; }
+}
+@media (max-width: 759px) {
+  .chat-panel .u3-message-list > .u3-message { grid-template-columns: 30px minmax(0,1fr); gap: 0 8px; padding-left: 10px; padding-right: 42px; }
+  .chat-panel .u3-message-list > .u3-double-tools { padding-right: 76px; }
+  .chat-panel .u3-message-list .u3-avatar { width: 30px; height: 30px; font-size: 16px; }
+  .chat-panel .u3-composer-wrap { padding: 6px 8px; }
+  .chat-panel .u3-message-list .u3-compact-time { font-size: 9px; }
+}
+.chat-panel .u3-message-list > .u3-request { padding-right: 16px; }

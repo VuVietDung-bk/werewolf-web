@@ -1,0 +1,94 @@
+{
+  "scope": "UX2 real frontend and API; disposable PostgreSQL 14; current legacy inner features",
+  "checks": [
+    {
+      "case": "lobby-chat-settings-distribute-start-via-ui",
+      "result": "pass"
+    },
+    {
+      "case": "host-wolf-villager-channel-permissions",
+      "result": "pass"
+    },
+    {
+      "case": "layout-1440",
+      "result": "pass",
+      "metrics": {
+        "width": 1440,
+        "height": 900,
+        "scrollWidth": 1440,
+        "scrollHeight": 900,
+        "bodyOverflow": "hidden",
+        "composerBottom": 880
+      }
+    },
+    {
+      "case": "layout-1024",
+      "result": "pass",
+      "metrics": {
+        "width": 1024,
+        "height": 768,
+        "scrollWidth": 1024,
+        "scrollHeight": 768,
+        "bodyOverflow": "hidden",
+        "composerBottom": 748
+      }
+    },
+    {
+      "case": "layout-390",
+      "result": "pass",
+      "metrics": {
+        "width": 390,
+        "height": 844,
+        "scrollWidth": 390,
+        "scrollHeight": 844,
+        "bodyOverflow": "hidden",
+        "composerBottom": 824
+      }
+    },
+    {
+      "case": "layout-320",
+      "result": "pass",
+      "metrics": {
+        "width": 320,
+        "height": 740,
+        "scrollWidth": 320,
+        "scrollHeight": 740,
+        "bodyOverflow": "hidden",
+        "composerBottom": 720
+      }
+    },
+    {
+      "case": "focus-trap-short-keyboard-viewport-and-landscape",
+      "result": "pass"
+    },
+    {
+      "case": "legacy-links-reload-back-forward-host-guards",
+      "result": "pass"
+    },
+    {
+      "case": "delayed-private-send-cannot-enter-general-view",
+      "result": "pass"
+    },
+    {
+      "case": "live-team-filter-and-private-request-access",
+      "result": "pass"
+    },
+    {
+      "case": "hidden-death-does-not-change-public-roster",
+      "result": "pass"
+    },
+    {
+      "case": "private-role-and-note-do-not-change-other-player-shell",
+      "result": "pass"
+    },
+    {
+      "case": "finished-readonly-result-transcript",
+      "result": "pass"
+    },
+    {
+      "case": "next-lobby-and-player-draft-route",
+      "result": "pass"
+    }
+  ],
+  "page_errors": []
+}

@@ -1,0 +1,50 @@
+{
+  "scope": "UX3 shared room realtime: real Chromium/HTTP/WS/PostgreSQL14",
+  "checks": [
+    {
+      "case": "one-v2-socket-survives-tab-navigation-no-legacy-websocket",
+      "result": "pass"
+    },
+    {
+      "case": "unrelated-private-dm-note-do-not-change-ws-or-cursor",
+      "result": "pass"
+    },
+    {
+      "case": "general-chat-arrives-through-room-invalidation",
+      "result": "pass"
+    },
+    {
+      "case": "ws-down-http-drains-and-reconnects-without-duplicates-or-lost-draft",
+      "result": "pass"
+    },
+    {
+      "case": "bad-live-token-resyncs-snapshots-and-retains-draft",
+      "result": "pass"
+    },
+    {
+      "case": "private-role-update-refreshes-current-tab-without-public-room-version-change",
+      "result": "pass"
+    },
+    {
+      "case": "own-team-policy-resync-refreshes-catalog-without-losing-general-draft",
+      "result": "pass"
+    },
+    {
+      "case": "request-queue-and-player-dm-share-realtime-review-scope",
+      "result": "pass"
+    },
+    {
+      "case": "vote-review-and-announcements-refresh-through-shared-scopes",
+      "result": "pass"
+    },
+    {
+      "case": "kick-closes-socket-clears-room-and-scoped-token",
+      "result": "pass"
+    },
+    {
+      "case": "idle-session-revocation-returns-login-and-cleans-socket",
+      "result": "pass"
+    }
+  ],
+  "page_errors": []
+}

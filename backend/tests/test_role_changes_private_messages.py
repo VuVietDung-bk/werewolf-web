@@ -1,5 +1,7 @@
 """Moderator identity changes and private information stay scoped to one player."""
 
+from legacy_read_services import service_get
+
 import asyncio
 from contextlib import AsyncExitStack
 from uuid import UUID, uuid4
@@ -48,11 +50,11 @@ def test_role_changes_and_private_messages() -> None:
                     "name": "Đổi role và tin riêng", "seat_limit": 2, "registration_open": False},
                     headers={"Origin": ORIGIN})).status_code == 200
                 assert (await post(host, f"{base}/roles/distribute-random")).status_code == 200
-                original = (await target.get(f"{base}/roles/my-assignment")).json()["role"]
-                catalog = (await target.get(f"{base}/role-catalog")).json()
+                original = (await service_get(target,f"{base}/roles/my-assignment")).json()["role"]
+                catalog = (await service_get(target,f"{base}/role-catalog")).json()
                 replacement = next(role for role in catalog["roles"] if role["id"] != original["id"])
                 assert (await post(host, f"{base}/game/start")).status_code == 200
-                public_version = (await other.get(base)).json()["version"]
+                public_version = (await service_get(other,base)).json()["version"]
                 actions = f"{base}/game/players/{user_ids[1]}/actions"
                 role_body = {"client_request_id": str(uuid4()), "action": "change_role",
                              "role_id": replacement["id"], "reason": "Chuyển hóa trong ván"}
@@ -63,14 +65,14 @@ def test_role_changes_and_private_messages() -> None:
                 assert changed.status_code == 200 and not changed.json()["repeated"]
                 assert (await post(host, actions, role_body)).json()["repeated"]
                 assert (await post(host, actions, {**role_body, "reason": "Khác"})).status_code == 409
-                current = (await target.get(f"{base}/roles/my-assignment")).json()["role"]
+                current = (await service_get(target,f"{base}/roles/my-assignment")).json()["role"]
                 assert current["id"] == replacement["id"]
                 assert current["faction_label"] == replacement["faction_label"]
                 assert current["team_chat_label"] == replacement["team_chat_label"]
-                assert (await other.get(f"{base}/roles/my-assignment")).json()["role"]["id"] == replacement["id"]
-                assert (await target.get(f"{base}/role-catalog")).json() == catalog
-                assert (await other.get(base)).json()["version"] == public_version
-                assert (await outsider.get(f"{base}/roles/my-assignment")).status_code == 403
+                assert (await service_get(other,f"{base}/roles/my-assignment")).json()["role"]["id"] == replacement["id"]
+                assert (await service_get(target,f"{base}/role-catalog")).json() == catalog
+                assert (await service_get(other,base)).json()["version"] == public_version
+                assert (await service_get(outsider,f"{base}/roles/my-assignment")).status_code == 403
 
                 faction_body = {"client_request_id": str(uuid4()), "action": "change_faction",
                                 "text": "Trung lập", "reason": "Đã xác nhận phản bội"}
@@ -78,12 +80,12 @@ def test_role_changes_and_private_messages() -> None:
                 team_body = {"client_request_id": str(uuid4()), "action": "change_team",
                              "text": "Hội kín", "reason": "Gia nhập hội"}
                 assert (await post(host, actions, team_body)).status_code == 200
-                current = (await target.get(f"{base}/roles/my-assignment")).json()["role"]
+                current = (await service_get(target,f"{base}/roles/my-assignment")).json()["role"]
                 assert (current["faction_label"], current["team_chat_label"]) == ("Trung lập", "Hội kín")
                 assert (await post(host, actions, {**team_body, "client_request_id": str(uuid4()),
                                                   "text": None})).status_code == 200
-                assert (await target.get(f"{base}/roles/my-assignment")).json()["role"]["team_chat_label"] is None
-                board = (await host.get(f"{base}/game/players")).json()
+                assert (await service_get(target,f"{base}/roles/my-assignment")).json()["role"]["team_chat_label"] is None
+                board = (await service_get(host,f"{base}/game/players")).json()
                 assert next(item for item in board if item["user_id"] == user_ids[1])["role"]["faction_label"] == "Trung lập"
 
                 message_url = f"{base}/game/players/{user_ids[1]}/private-messages"
@@ -95,14 +97,14 @@ def test_role_changes_and_private_messages() -> None:
                 assert sent.status_code == 200 and not sent.json()["repeated"]
                 assert (await post(host, message_url, message_body)).json()["repeated"]
                 assert (await post(host, message_url, {**message_body, "text": "Khác"})).status_code == 409
-                assert (await target.get(inbox)).json()[0]["text"] == message_body["text"]
-                assert (await target.get(inbox)).json()[0]["sequence"] > 0
-                assert "reason" not in (await target.get(inbox)).json()[0]
-                assert (await host.get(message_url)).json() == (await target.get(inbox)).json()
-                assert (await other.get(inbox)).json() == []
-                assert (await other.get(message_url)).status_code == 403
-                assert (await outsider.get(inbox)).status_code == 403
-                assert (await other.get(base)).json()["version"] == public_version
+                assert (await service_get(target,inbox)).json()[0]["text"] == message_body["text"]
+                assert (await service_get(target,inbox)).json()[0]["sequence"] > 0
+                assert "reason" not in (await service_get(target,inbox)).json()[0]
+                assert (await service_get(host,message_url)).json() == (await service_get(target,inbox)).json()
+                assert (await service_get(other,inbox)).json() == []
+                assert (await service_get(other,message_url)).status_code == 403
+                assert (await service_get(outsider,inbox)).status_code == 403
+                assert (await service_get(other,base)).json()["version"] == public_version
 
                 async with session_factory()() as db:
                     assignment = await db.get(RoleAssignment, (UUID(room_id), UUID(user_ids[1])))
@@ -129,7 +131,7 @@ def test_role_changes_and_private_messages() -> None:
                 assert (await post(host, f"{base}/game/players/{user_ids[1]}/announce", {
                     "client_request_id": str(uuid4()), "moderator_reason": "Công bố cái chết",
                     "reveal_role": True})).status_code == 200
-                notices = (await other.get(f"{base}/game/death-notices")).json()
+                notices = (await service_get(other,f"{base}/game/death-notices")).json()
                 assert notices[-1]["revealed_role_name"] == replacement["name"]
 
                 assert (await post(host, f"{base}/game/pause", {"reason": "Nghỉ"})).status_code == 200
@@ -137,14 +139,14 @@ def test_role_changes_and_private_messages() -> None:
                     "client_request_id": str(uuid4()), "text": "Làng"})).status_code == 409
                 assert (await post(host, message_url, {**message_body,
                     "client_request_id": str(uuid4()), "text": "Vẫn nhận được"})).status_code == 200
-                assert len((await target.get(inbox)).json()) == 2
+                assert len((await service_get(target,inbox)).json()) == 2
                 assert (await post(host, f"{base}/game/finish", {
                     "result_label": "Kết thúc", "result_reason": "Đã kiểm tra"})).status_code == 200
                 assert (await post(host, message_url, {**message_body,
                     "client_request_id": str(uuid4())})).status_code == 409
                 assert (await post(host, message_url, message_body)).json() == {
                     "event_id": sent.json()["event_id"], "repeated": True}
-                assert len((await target.get(inbox)).json()) == 2
+                assert len((await service_get(target,inbox)).json()) == 2
             finally:
                 if room_id:
                     async with session_factory()() as db:

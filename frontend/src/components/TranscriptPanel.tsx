@@ -16,6 +16,7 @@ const labels: Record<string, string> = {
   'roles.distributed': 'Phát role ngẫu nhiên', 'role.request_submitted': 'Gửi yêu cầu role',
   'role.request_reviewed': 'Phản hồi yêu cầu role', 'role.request_withdrawn': 'Rút yêu cầu role',
   'chat.sent': 'Tin nhắn', 'chat.revised': 'Sửa hoặc xóa tin nhắn',
+  'chat.reaction_decided': 'Thao tác reaction', 'chat.reaction_changed': 'Thêm hoặc gỡ reaction',
   'vote.opened': 'Mở vote', 'vote.ballot_submitted': 'Bỏ hoặc đổi phiếu',
   'vote.closed': 'Đóng vote', 'vote.decided': 'Quản trò chốt vote',
   'vote.publication_decided': 'Chọn cách công bố vote', 'vote.result_announced': 'Công bố vote',
@@ -80,6 +81,10 @@ function summary(item: TranscriptEvent, info: TranscriptInfo): string {
     const channel: Record<string, string> = { common: 'Chat chung', team: 'Chat đội', host: 'Chat quản trò' }
     const recipient = payload.channel === 'host' ? ` với ${named(payload.participant_user_id, info.members)}` : ''
     return `${channel[String(payload.channel)] ?? String(payload.channel)}${recipient}: ${String(request.text ?? '')}`
+  }
+  if(item.kind==='chat.reaction_decided'||item.kind==='chat.reaction_changed'){
+    const data=item.kind==='chat.reaction_decided'?request:payload
+    return `${data.present?'Thêm':'Gỡ'} ${String(data.emoji??'')}${payload.changed===false?' · không đổi trạng thái':''}`
   }
   if (item.kind === 'vote.ballot_submitted') {
     const choice = request.choice === 'target' ? named(request.target_user_id, info.members)

@@ -1,0 +1,110 @@
+{
+  "scope": "UX1 offline prototype only; not application acceptance E/F/G",
+  "checks": [
+    {
+      "case": "layout-1440",
+      "result": "pass",
+      "metrics": {
+        "width": 1440,
+        "bodyWidth": 1440,
+        "bodyHeight": 900,
+        "height": 900,
+        "tabs": [
+          "Chat",
+          "Role",
+          "Quản lý"
+        ],
+        "composer": 868,
+        "sidebar": "block",
+        "members": "block"
+      }
+    },
+    {
+      "case": "layout-1024",
+      "result": "pass",
+      "metrics": {
+        "width": 1024,
+        "bodyWidth": 1024,
+        "bodyHeight": 768,
+        "height": 768,
+        "tabs": [
+          "Chat",
+          "Role",
+          "Quản lý"
+        ],
+        "composer": 736,
+        "sidebar": "block",
+        "members": "none"
+      }
+    },
+    {
+      "case": "layout-390",
+      "result": "pass",
+      "metrics": {
+        "width": 390,
+        "bodyWidth": 390,
+        "bodyHeight": 844,
+        "height": 844,
+        "tabs": [
+          "Chat",
+          "Role",
+          "Quản lý"
+        ],
+        "composer": 816,
+        "sidebar": "none",
+        "members": "none"
+      }
+    },
+    {
+      "case": "layout-320",
+      "result": "pass",
+      "metrics": {
+        "width": 320,
+        "bodyWidth": 320,
+        "bodyHeight": 740,
+        "height": 740,
+        "tabs": [
+          "Chat",
+          "Role",
+          "Quản lý"
+        ],
+        "composer": 712,
+        "sidebar": "none",
+        "members": "none"
+      }
+    },
+    {
+      "case": "draft-switch-emoji-send-text",
+      "result": "pass"
+    },
+    {
+      "case": "role-editor-fixed-description-and-search",
+      "result": "pass"
+    },
+    {
+      "case": "player-and-request-drawer",
+      "result": "pass"
+    },
+    {
+      "case": "secret-own-only-public-explicit-submit-mock",
+      "result": "pass"
+    },
+    {
+      "case": "announcement-simple-composer-schedule-not-public",
+      "result": "pass"
+    },
+    {
+      "case": "finished-readonly-and-history",
+      "result": "pass"
+    },
+    {
+      "case": "loading-empty-offline-design-states",
+      "result": "pass"
+    },
+    {
+      "case": "mobile-role-modal-player-drawer",
+      "result": "pass"
+    }
+  ],
+  "page_errors": []
+}

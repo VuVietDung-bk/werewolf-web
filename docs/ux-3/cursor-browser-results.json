@@ -1,0 +1,66 @@
+{
+  "scope": "UX3 opaque HTTP timeline/cursors: real API/Chromium/disposable PostgreSQL14",
+  "checks": [
+    {
+      "case": "one-way-message-opens-passive-reply-both-sides-share-timeline-no-other-player",
+      "result": "pass"
+    },
+    {
+      "case": "shared-single-channel-policy-poll-and-addressed-send",
+      "result": "pass"
+    },
+    {
+      "case": "one-paginated-source-for-both-perspectives-no-duplicate-no-legacy-inbox-read",
+      "result": "pass"
+    },
+    {
+      "case": "tampered-cursor-real-api-resync-retains-draft-and-pagination-recovers",
+      "result": "pass"
+    },
+    {
+      "case": "invalid-before-token-resnapshots-without-stuck-history-button",
+      "result": "pass"
+    },
+    {
+      "case": "late-history-snapshot-reconciles-revision-for-previously-unloaded-source",
+      "result": "pass"
+    },
+    {
+      "case": "host-menu-edit-delete-private-source-live-player-and-no-leak",
+      "result": "pass"
+    },
+    {
+      "case": "one-way-private-message-shares-dm-unread-and-read-boundary",
+      "result": "pass"
+    },
+    {
+      "case": "permission-service-failure-hides-stale-send-controls-and-recovers",
+      "result": "pass"
+    },
+    {
+      "case": "stale-team-screen-cannot-send-into-new-team",
+      "result": "pass"
+    },
+    {
+      "case": "former-team-channel-retains-only-delivered-history-readonly",
+      "result": "pass"
+    },
+    {
+      "case": "generic-team-bookmark-resolves-current-identity-without-old-team-cache",
+      "result": "pass"
+    },
+    {
+      "case": "host-can-reopen-departed-dm-history-cannot-send",
+      "result": "pass"
+    },
+    {
+      "case": "postgame-other-player-opens-departed-dm-full-revisions-and-expanded-team",
+      "result": "pass"
+    },
+    {
+      "case": "browser-uses-only-v2-timeline-with-fixed-length-opaque-cursors-and-no-public-ordinals",
+      "result": "pass"
+    }
+  ],
+  "page_errors": []
+}

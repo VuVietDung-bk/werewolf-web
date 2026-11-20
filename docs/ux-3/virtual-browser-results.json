@@ -1,0 +1,37 @@
+{
+  "scope": "UX3 virtual history: Chromium + PostgreSQL14, 10000 real fixture messages",
+  "checks": [
+    "10000-history-items-loaded-through-bounded-http-pages",
+    "scroll-10000-items-keeps-bounded-dom-with-variable-height",
+    "focused-editor-survives-window-movement-in-10000-item-history",
+    "10000-item-mobile-window-stays-bounded-and-resize-keeps-anchor",
+    "unmounted-tail-stays-unread-until-user-jumps-to-visible-row",
+    "live-edit-and-reaction-height-changes-above-viewport-preserve-anchor",
+    "switch-channel-restores-middle-anchor-with-10000-cached-items",
+    "workspace-unmount-restores-anchor-with-one-bounded-page",
+    "reload-seeks-authorized-source-without-history-scan",
+    "middle-window-forward-paging-stays-contiguous-and-jump-latest-fetches-one-page",
+    "mobile-width-and-keyboard-height-preserve-source-anchor",
+    "send-from-restored-history-jumps-to-actual-latest-page",
+    "deleted-saved-anchor-falls-back-to-latest-without-retry-loop",
+    "arrival-after-last-forward-snapshot-is-replayed-once-when-gap-closes",
+    "send-during-initial-history-load-follows-tail-and-discards-stale-window",
+    "session-revocation-clears-position-metadata-without-unmount-repopulation"
+  ],
+  "metrics": {
+    "discovery_seconds": 0.026,
+    "initial_heap_bytes": 3323816,
+    "load_10000_seconds": 32.311,
+    "history_http_pages": 335,
+    "loaded_heap_bytes": 9923316,
+    "loaded_dom_nodes": 356,
+    "max_rendered_rows": 30,
+    "scroll_two_frames_p95_ms": 33.6,
+    "mobile_390_rendered_rows": 23,
+    "mobile_390_heap_bytes": 10325332,
+    "mobile_320_rendered_rows": 19,
+    "mobile_320_heap_bytes": 10292264
+  },
+  "page_errors": [],
+  "note": "Fixture bulk insertion models past committed public history; pagination, live messages/revisions/read ACK use real HTTP. Headless local measurements are not a 500-user or physical-phone load test."
+}

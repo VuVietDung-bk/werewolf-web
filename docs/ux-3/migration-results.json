@@ -1,0 +1,12 @@
+{
+  "migration": "0028_private_message_positions",
+  "checks": [
+    "upgrade with existing untouched, edited and deleted private messages",
+    "positions backfilled from original events and last revision",
+    "source IDs, text and revision history preserved",
+    "two pagination indexes exist",
+    "downgrade and re-upgrade preserve data"
+  ],
+  "result": "pass",
+  "database": "separate temporary PostgreSQL14 database, deleted afterwards"
+}

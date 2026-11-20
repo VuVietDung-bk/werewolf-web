@@ -6,6 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import GameEvent, Outbox, Room
+from app.channel_registry import register_for_event
+from app.delivery import record_deliveries
 
 
 async def append_event(
@@ -34,4 +36,6 @@ async def append_event(
     await db.flush()
     db.add(Outbox(event_id=event.id))
     await db.flush()
+    await register_for_event(db, room_id, kind, payload)
+    await record_deliveries(db, room, event)
     return event

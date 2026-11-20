@@ -14,6 +14,7 @@ from app.db.events import append_event
 from app.db.models import GameEvent, Outbox, PlayerState, Room, User
 from app.db.session import session_factory
 from app.main import app
+from legacy_read_services import service_get
 
 ORIGIN = "http://localhost:5173"
 
@@ -24,7 +25,8 @@ async def post(client, path, body=None):
 
 class ASGISocket:
     def __init__(self, path: str, cookie: str | None, origin: str | None = ORIGIN,
-                 after_sequence: int | str | None = None):
+                 after_sequence: int | str | None = None, service_protocol: bool = False):
+        self.service_protocol=service_protocol
         self.input: asyncio.Queue[dict] = asyncio.Queue()
         self.output: asyncio.Queue[dict] = asyncio.Queue()
         headers = []
@@ -41,7 +43,11 @@ class ASGISocket:
         self.task: asyncio.Task | None = None
 
     async def connect(self) -> dict:
-        self.task = asyncio.create_task(app(self.scope, self.input.get, self.output.put))
+        if self.service_protocol:
+            from legacy_socket_service import service_app
+            target=service_app
+        else:target=app
+        self.task = asyncio.create_task(target(self.scope, self.input.get, self.output.put))
         await self.input.put({"type": "websocket.connect"})
         return await asyncio.wait_for(self.output.get(), timeout=2)
 
@@ -114,16 +120,16 @@ def test_room_websocket_delivers_only_authorized_event_ids(monkeypatch) -> None:
                 by_id = dict(zip(user_ids[1:4], clients[1:4]))
                 path = f"{base}/live"
                 for client in clients[:4]:
-                    socket = ASGISocket(path, client.cookies.get(COOKIE_NAME))
+                    socket = ASGISocket(path, client.cookies.get(COOKIE_NAME), service_protocol=True)
                     assert (await socket.connect())["type"] == "websocket.accept"
                     sockets.append(socket)
                 socket_by_id = dict(zip(user_ids[:4], sockets))
-                assert (await ASGISocket(path, outsider.cookies.get(COOKIE_NAME)).connect())["code"] == 4403
-                assert (await ASGISocket(path, None).connect())["code"] == 4401
+                assert (await ASGISocket(path, outsider.cookies.get(COOKIE_NAME), service_protocol=True).connect())["code"] == 4403
+                assert (await ASGISocket(path, None, service_protocol=True).connect())["code"] == 4401
                 assert (await ASGISocket(path, host.cookies.get(COOKIE_NAME),
-                                         "https://evil.example").connect())["code"] == 4403
+                                         "https://evil.example", service_protocol=True).connect())["code"] == 4403
                 assert (await ASGISocket(f"/api/rooms/{uuid4()}/live",
-                                         host.cookies.get(COOKIE_NAME)).connect())["code"] == 4404
+                                         host.cookies.get(COOKIE_NAME), service_protocol=True).connect())["code"] == 4404
 
                 chat = f"{base}/chat/messages"
                 common = await post(first, chat, chat_body("common", "Tin chung"))
@@ -258,8 +264,8 @@ def test_websocket_replays_missing_events_by_connection_cursor(monkeypatch) -> N
                 assert (await post(player, "/api/rooms/join", {
                     "code": room["code"], "accept_postgame_transcript": True})).status_code == 200
                 path = f"/api/rooms/{room_id}/live"
-                host_socket = ASGISocket(path, host.cookies.get(COOKIE_NAME))
-                player_socket = ASGISocket(path, player.cookies.get(COOKIE_NAME))
+                host_socket = ASGISocket(path, host.cookies.get(COOKIE_NAME), service_protocol=True)
+                player_socket = ASGISocket(path, player.cookies.get(COOKIE_NAME), service_protocol=True)
                 sockets.extend([host_socket, player_socket])
                 for socket in sockets:
                     assert (await socket.connect())["type"] == "websocket.accept"
@@ -279,9 +285,9 @@ def test_websocket_replays_missing_events_by_connection_cursor(monkeypatch) -> N
                 for event_id in ids:
                     assert (await host_socket.event(event_id))["event_id"] == event_id
                 assert (await ASGISocket(path, player.cookies.get(COOKIE_NAME),
-                                         after_sequence="bad").connect())["code"] == 4400
+                                         after_sequence="bad", service_protocol=True).connect())["code"] == 4400
                 recovered = ASGISocket(path, player.cookies.get(COOKIE_NAME),
-                                        after_sequence=initial["cursor"])
+                                        after_sequence=initial["cursor"], service_protocol=True)
                 sockets.append(recovered)
                 assert (await recovered.connect())["type"] == "websocket.accept"
                 assert (await recovered.ready())["cursor"] == initial["cursor"]
@@ -352,7 +358,7 @@ def test_reconnect_replays_chat_request_kill_and_vote_publication_in_order(monke
 
                 path = f"{base}/live"
                 for client in (host, active, witness):
-                    socket = ASGISocket(path, client.cookies.get(COOKIE_NAME))
+                    socket = ASGISocket(path, client.cookies.get(COOKIE_NAME), service_protocol=True)
                     assert (await socket.connect())["type"] == "websocket.accept"
                     sockets.append(socket)
                 host_socket, active_socket, witness_socket = sockets
@@ -376,7 +382,7 @@ def test_reconnect_replays_chat_request_kill_and_vote_publication_in_order(monke
                            for frame in host_frames)
 
                 recovered_active = ASGISocket(path, active.cookies.get(COOKIE_NAME),
-                                              after_sequence=initial_cursor)
+                                              after_sequence=initial_cursor, service_protocol=True)
                 sockets.append(recovered_active)
                 assert (await recovered_active.connect())["type"] == "websocket.accept"
                 assert (await recovered_active.ready())["cursor"] == initial_cursor
@@ -386,7 +392,7 @@ def test_reconnect_replays_chat_request_kill_and_vote_publication_in_order(monke
                 assert recovered_active.output.empty()
 
                 recovered_witness = ASGISocket(path, witness.cookies.get(COOKIE_NAME),
-                                               after_sequence=initial_cursor)
+                                               after_sequence=initial_cursor, service_protocol=True)
                 sockets.append(recovered_witness)
                 assert (await recovered_witness.connect())["type"] == "websocket.accept"
                 await recovered_witness.ready()
@@ -396,7 +402,7 @@ def test_reconnect_replays_chat_request_kill_and_vote_publication_in_order(monke
                 public_member = next(item for item in (await witness.get(base)).json()["members"]
                                      if item["user_id"] == active_id)
                 assert public_member["public_is_alive"] is True
-                assert (await witness.get(f"{base}/role-requests")).json()["requests"] == []
+                assert (await service_get(witness,f"{base}/role-requests")).json()["requests"] == []
                 assert (await host.get(f"{base}/game/players")).json()[
                     0 if active_id == user_ids[1] else 1]["is_alive"] is False
 
@@ -442,7 +448,7 @@ def test_reconnect_replays_chat_request_kill_and_vote_publication_in_order(monke
                     assert original.payload["text"] != "C: đã đính chính kết quả"
 
                 replay = ASGISocket(path, witness.cookies.get(COOKIE_NAME),
-                                    after_sequence=vote_cursor)
+                                    after_sequence=vote_cursor, service_protocol=True)
                 sockets.append(replay)
                 assert (await replay.connect())["type"] == "websocket.accept"
                 assert (await replay.ready())["cursor"] == vote_cursor
@@ -516,7 +522,7 @@ def test_hidden_or_skipped_death_does_not_leak_through_public_views_or_websocket
                 assert (await post(host, f"{base}/game/start")).status_code == 200
                 path = f"{base}/live"
                 for client in (host, target, witness):
-                    socket = ASGISocket(path, client.cookies.get(COOKIE_NAME))
+                    socket = ASGISocket(path, client.cookies.get(COOKIE_NAME), service_protocol=True)
                     sockets.append(socket)
                     assert (await socket.connect())["type"] == "websocket.accept"
                     await socket.ready()

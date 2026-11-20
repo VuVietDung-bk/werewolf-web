@@ -1,5 +1,7 @@
 """Moderator edit/delete changes live content but keeps original events for audit."""
 
+from legacy_read_services import service_get
+
 import asyncio
 from contextlib import AsyncExitStack
 from uuid import UUID, uuid4
@@ -63,8 +65,8 @@ def test_private_message_and_death_notice_edit_delete(monkeypatch) -> None:
                 assert (await post(outsider, revision_url, {"client_request_id": str(uuid4()),
                     "action": "delete"})).status_code == 403
                 inbox_url = f"{base}/game/private-messages"
-                assert (await target.get(inbox_url)).json()[0]["text"] == "Bản nhắn đầu tiên"
-                assert (await other.get(inbox_url)).json() == []
+                assert (await service_get(target,inbox_url)).json()[0]["text"] == "Bản nhắn đầu tiên"
+                assert (await service_get(other,inbox_url)).json() == []
                 original_append = content_revisions.append_event
 
                 async def fail_append(*args, **kwargs):
@@ -74,7 +76,7 @@ def test_private_message_and_death_notice_edit_delete(monkeypatch) -> None:
                 assert (await post(host, revision_url, {"client_request_id": str(uuid4()),
                     "action": "edit", "text": "Không được lưu"})).status_code == 500
                 monkeypatch.setattr(content_revisions, "append_event", original_append)
-                assert (await target.get(inbox_url)).json()[0]["text"] == "Bản nhắn đầu tiên"
+                assert (await service_get(target,inbox_url)).json()[0]["text"] == "Bản nhắn đầu tiên"
                 async with session_factory()() as db:
                     assert await db.get(ContentRevision, UUID(source_id)) is None
                 edit_body = {"client_request_id": str(uuid4()), "action": "edit",
@@ -85,7 +87,7 @@ def test_private_message_and_death_notice_edit_delete(monkeypatch) -> None:
                     **edited.json(), "repeated": True}
                 assert (await post(host, revision_url, {**edit_body,
                     "text": "Nội dung khác"})).status_code == 409
-                inbox = (await target.get(inbox_url)).json()
+                inbox = (await service_get(target,inbox_url)).json()
                 assert len(inbox) == 1 and inbox[0]["text"] == "Bản nhắn đã sửa"
                 assert inbox[0]["edited_at"] and inbox[0]["event_id"] == source_id
                 assert (await post(host, revision_url, {"client_request_id": str(uuid4()),
@@ -93,8 +95,8 @@ def test_private_message_and_death_notice_edit_delete(monkeypatch) -> None:
                 deleted = await post(host, revision_url, {"client_request_id": str(uuid4()),
                     "action": "delete"})
                 assert deleted.status_code == 200 and deleted.json()["public_event_id"] is None
-                assert (await target.get(inbox_url)).json() == []
-                assert (await host.get(message_url)).json() == []
+                assert (await service_get(target,inbox_url)).json() == []
+                assert (await service_get(host,message_url)).json() == []
                 assert (await post(host, revision_url, {"client_request_id": str(uuid4()),
                     "action": "edit", "text": "Khôi phục"})).status_code == 409
 
@@ -103,18 +105,18 @@ def test_private_message_and_death_notice_edit_delete(monkeypatch) -> None:
                     "action": "note", "text": "Ghi chú ban đầu"})
                 assert noted.status_code == 200
                 notes_url = f"{base}/game/players/{user_ids[1]}/notes"
-                note = (await host.get(notes_url)).json()[0]
+                note = (await service_get(host,notes_url)).json()[0]
                 note_revision_url = f"{base}/game/content/notes/{note['id']}/revisions"
                 assert (await post(target, note_revision_url, {"client_request_id": str(uuid4()),
                     "action": "edit", "text": "Sửa trái phép"})).status_code == 403
-                assert (await target.get(notes_url)).status_code == 403
+                assert (await service_get(target,notes_url)).status_code == 403
                 assert (await post(host, note_revision_url, {"client_request_id": str(uuid4()),
                     "action": "edit", "text": "  "})).status_code == 422
                 monkeypatch.setattr(content_revisions, "append_event", fail_append)
                 assert (await post(host, note_revision_url, {"client_request_id": str(uuid4()),
                     "action": "edit", "text": "Không được lưu"})).status_code == 500
                 monkeypatch.setattr(content_revisions, "append_event", original_append)
-                assert (await host.get(notes_url)).json()[0]["text"] == "Ghi chú ban đầu"
+                assert (await service_get(host,notes_url)).json()[0]["text"] == "Ghi chú ban đầu"
                 note_edit_body = {"client_request_id": str(uuid4()), "action": "edit",
                                   "text": "  Ghi chú đã sửa  "}
                 note_edit = await post(host, note_revision_url, note_edit_body)
@@ -122,15 +124,15 @@ def test_private_message_and_death_notice_edit_delete(monkeypatch) -> None:
                 assert (await post(host, note_revision_url, note_edit_body)).json()["repeated"]
                 assert (await post(host, note_revision_url, {**note_edit_body,
                     "text": "Khác"})).status_code == 409
-                updated_note = (await host.get(notes_url)).json()[0]
+                updated_note = (await service_get(host,notes_url)).json()[0]
                 assert updated_note["text"] == "Ghi chú đã sửa" and updated_note["edited_at"]
-                board = (await host.get(f"{base}/game/players")).json()
+                board = (await service_get(host,f"{base}/game/players")).json()
                 assert next(item for item in board if item["user_id"] == user_ids[1])["note_count"] == 1
                 note_delete = await post(host, note_revision_url, {"client_request_id": str(uuid4()),
                     "action": "delete"})
                 assert note_delete.status_code == 200
-                assert (await host.get(notes_url)).json() == []
-                board = (await host.get(f"{base}/game/players")).json()
+                assert (await service_get(host,notes_url)).json() == []
+                board = (await service_get(host,f"{base}/game/players")).json()
                 assert next(item for item in board if item["user_id"] == user_ids[1])["note_count"] == 0
                 assert (await post(host, note_revision_url, {"client_request_id": str(uuid4()),
                     "action": "edit", "text": "Khôi phục"})).status_code == 409
@@ -142,21 +144,21 @@ def test_private_message_and_death_notice_edit_delete(monkeypatch) -> None:
                     "public_cause": "Bản nguyên nhân đầu", "reveal_role": False})
                 assert announcement.status_code == 200
                 notices_url = f"{base}/game/death-notices"
-                notice = (await other.get(notices_url)).json()[0]
+                notice = (await service_get(other,notices_url)).json()[0]
                 notice_revision_url = f"{base}/game/content/{notice['id']}/revisions"
-                public_version = (await other.get(base)).json()["version"]
+                public_version = (await service_get(other,base)).json()["version"]
                 notice_edit = await post(host, notice_revision_url, {"client_request_id": str(uuid4()),
                     "action": "edit", "text": "Nguyên nhân đã sửa"})
                 assert notice_edit.status_code == 200 and notice_edit.json()["public_event_id"]
-                revised_notice = (await other.get(notices_url)).json()[0]
+                revised_notice = (await service_get(other,notices_url)).json()[0]
                 assert revised_notice["public_cause"] == "Nguyên nhân đã sửa"
                 assert revised_notice["edited_at"]
-                assert (await other.get(base)).json()["version"] == public_version + 1
+                assert (await service_get(other,base)).json()["version"] == public_version + 1
                 notice_delete = await post(host, notice_revision_url, {
                     "client_request_id": str(uuid4()), "action": "delete"})
                 assert notice_delete.status_code == 200 and notice_delete.json()["public_event_id"]
-                assert (await other.get(notices_url)).json() == []
-                member = next(item for item in (await other.get(base)).json()["members"]
+                assert (await service_get(other,notices_url)).json() == []
+                member = next(item for item in (await service_get(other,base)).json()["members"]
                               if item["user_id"] == user_ids[1])
                 assert not member["public_is_alive"]
                 assert (await post(host, f"{base}/game/finish", {

@@ -141,6 +141,74 @@ class GameEvent(Base):
     )
 
 
+class RoomDeliveryStream(Base):
+    """Private position and authorization generation; writes hold the parent room lock."""
+
+    __tablename__ = "room_delivery_streams"
+    __table_args__ = (
+        CheckConstraint("position >= 0 AND policy_epoch >= 1", name="ck_room_delivery_stream_position"),
+    )
+    room_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+        ForeignKey("rooms.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"), primary_key=True)
+    position: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    policy_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="1")
+
+
+class RoomDelivery(Base):
+    """Append-only invalidation audience, recorded with its source event."""
+
+    __tablename__ = "room_deliveries"
+    __table_args__ = (
+        ForeignKeyConstraint(["room_id", "user_id"],
+            ["room_delivery_streams.room_id", "room_delivery_streams.user_id"], ondelete="CASCADE"),
+        UniqueConstraint("room_id", "user_id", "position", name="uq_room_delivery_position"),
+        UniqueConstraint("room_id", "user_id", "source_event_id", name="uq_room_delivery_source"),
+        CheckConstraint("position > 0", name="ck_room_delivery_position"),
+    )
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    room_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    position: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_event_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+        ForeignKey("game_events.id", ondelete="CASCADE"), nullable=False)
+    scopes: Mapped[list] = mapped_column(JSONB, nullable=False)
+    channel_ids: Mapped[list] = mapped_column(JSONB, nullable=False)
+
+
+class ChannelRead(Base):
+    """Monotonic actor/channel checkpoint; never exposed as an ordinal or receipt."""
+
+    __tablename__ = "channel_reads"
+    __table_args__ = (
+        ForeignKeyConstraint(["room_id", "user_id"],
+            ["room_delivery_streams.room_id", "room_delivery_streams.user_id"], ondelete="CASCADE"),
+        CheckConstraint("position >= 0", name="ck_channel_read_position"),
+    )
+    room_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    channel_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+        ForeignKey("room_channels.id", ondelete="CASCADE"), primary_key=True)
+    position: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MessageReaction(Base):
+    """One current reaction per source, actor and complete Unicode emoji."""
+
+    __tablename__ = "message_reactions"
+    __table_args__ = (Index("ix_message_reactions_room_user", "room_id", "user_id"),)
+    source_event_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+        ForeignKey("game_events.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"), primary_key=True)
+    emoji: Mapped[str] = mapped_column(String(32), primary_key=True)
+    room_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True),
+        ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class Outbox(Base):
     __tablename__ = "outbox"
     __table_args__ = (Index("ix_outbox_unpublished", "published_at", "created_at"),)
@@ -311,6 +379,8 @@ class PrivateMessage(Base):
                              ["player_states.room_id", "player_states.user_id"],
                              ondelete="CASCADE"),
         Index("ix_private_messages_room_user_created", "room_id", "user_id", "created_at"),
+        Index("ix_private_messages_room_user_sequence", "room_id", "user_id", "sequence"),
+        Index("ix_private_messages_room_updated", "room_id", "updated_sequence"),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -323,10 +393,28 @@ class PrivateMessage(Base):
         PG_UUID(as_uuid=True), ForeignKey("game_events.id", ondelete="CASCADE"),
         unique=True, nullable=False
     )
+    sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
     text: Mapped[str] = mapped_column(String(2000), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class RoomChannel(Base):
+    __tablename__ = "room_channels"
+    __table_args__ = (
+        UniqueConstraint("room_id", "kind", "channel_key", name="uq_room_channels_identity"),
+        CheckConstraint("(kind IN ('common','announcement','vote') AND channel_key = '') OR "
+                        "(kind = 'team' AND length(channel_key) > 0) OR "
+                        "(kind = 'moderator_dm' AND channel_key ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')",
+                        name="ck_room_channels_key"),
+    )
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    room_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    channel_key: Mapped[str] = mapped_column(String(80), nullable=False)
 
 
 class ChatMessage(Base):

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useRoomSignal } from './RoomRealtime'
 import { api, jsonBody, type DraftStatus, type RoleCatalog, type Room } from '../api'
 import { factionClass } from '../factions'
 import RoleIcon from './RoleIcon'
@@ -18,6 +19,7 @@ export default function DraftPanel({ room, catalog, onRoomChanged, onRandomDistr
   room: Room; catalog: RoleCatalog; onRoomChanged: () => Promise<void>
   onRandomDistribution: () => Promise<void>; randomBusy: boolean
 }) {
+  const roomSignal=useRoomSignal(['roles'])
   const [mode, setMode] = useState<'random' | 'draft'>(() => readPreferences(room.id).mode)
   const [candidates, setCandidates] = useState<string[] | null>(() => readPreferences(room.id).candidates)
   const [status, setStatus] = useState<DraftStatus | null>(null)
@@ -64,7 +66,7 @@ export default function DraftPanel({ room, catalog, onRoomChanged, onRandomDistr
     void reload()
     const timer = window.setInterval(() => { void reload() }, 8000)
     return () => { alive = false; window.clearInterval(timer) }
-  }, [catalog.distribution_mode, room.id, room.version])
+  }, [catalog.distribution_mode, room.id, room.version, roomSignal])
 
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true); setError(''); setNotice('')

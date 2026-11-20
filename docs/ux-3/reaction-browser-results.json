@@ -1,0 +1,50 @@
+{
+  "scope": "UX3 reactions: real Chromium/HTTP/WS/PostgreSQL14",
+  "checks": [
+    {
+      "case": "unicode-zwj-family-kept-whole-safe-text-and-realtime-count",
+      "result": "pass"
+    },
+    {
+      "case": "two-actors-share-count-and-toggle-only-own-reaction",
+      "result": "pass"
+    },
+    {
+      "case": "picker-search-keyboard-and-escape-focus",
+      "result": "pass"
+    },
+    {
+      "case": "reaction-change-does-not-create-unread-chat",
+      "result": "pass"
+    },
+    {
+      "case": "private-message-reaction-does-not-leak-frame-or-catalog-to-third-player",
+      "result": "pass"
+    },
+    {
+      "case": "one-way-and-two-way-dm-sources-react-independently-for-both-sides",
+      "result": "pass"
+    },
+    {
+      "case": "team-reaction-follows-day-night-channel-policy",
+      "result": "pass"
+    },
+    {
+      "case": "mute-blocks-reaction-and-unmute-refreshes-controls-with-draft-intact",
+      "result": "pass"
+    },
+    {
+      "case": "lost-ack-retries-same-id-and-new-opposite-intent-invalidates-stale-command",
+      "result": "pass"
+    },
+    {
+      "case": "late-reaction-response-does-not-enter-a-different-channel",
+      "result": "pass"
+    },
+    {
+      "case": "deleted-source-retains-reactions-postgame-and-full-journal-keeps-add-remove-noop",
+      "result": "pass"
+    }
+  ],
+  "page_errors": []
+}

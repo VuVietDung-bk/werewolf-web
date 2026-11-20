@@ -1,3 +1,4 @@
+import { useRoomSignal } from './RoomRealtime'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, jsonBody, type LinkableRoleAction, type RoleRequest, type RoleRequestContext, type RoleRequestPage, type Room } from '../api'
 import { useRequestIds } from '../useRequestIds'
@@ -31,6 +32,7 @@ export default function RoleRequestsPanel({ room }: { room: Room }) {
   const [linkedIds, setLinkedIds] = useState<string[]>([])
   const refreshRef = useRef<() => void>(() => {})
   const requestIdFor = useRequestIds()
+  const roomSignal=useRoomSignal(["role_requests", "roles"])
   const base = `/api/rooms/${room.id}/role-requests`
 
   useEffect(() => {
@@ -41,7 +43,7 @@ export default function RoleRequestsPanel({ room }: { room: Room }) {
     load()
     const timer = window.setInterval(load, 6000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [base, room.version])
+  }, [base, room.version, roomSignal])
 
   useEffect(() => {
     let active = true
@@ -87,6 +89,8 @@ export default function RoleRequestsPanel({ room }: { room: Room }) {
     const timer = window.setInterval(() => void refresh(), 5000)
     return () => { active = false; window.clearInterval(timer); refreshRef.current = () => {} }
   }, [base])
+
+  useEffect(()=>{refreshRef.current()},[roomSignal])
 
   async function loadOlder() {
     if (before === null || loadingOlder) return

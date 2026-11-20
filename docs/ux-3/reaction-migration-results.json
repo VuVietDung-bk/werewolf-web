@@ -1,0 +1,15 @@
+{
+  "migration": "0032_message_reactions",
+  "result": "pass",
+  "checks": [
+    "upgrade preserves old source IDs/text/positions and starts an empty reaction projection",
+    "full Unicode ZWJ emoji stored without truncation",
+    "one reaction per source/actor/emoji enforced by database",
+    "two actors may choose the same emoji",
+    "downgrade preserves source event and reaction history",
+    "read checkpoints and outbox remain unchanged",
+    "re-upgrade is empty after downgrade; current reactions are not silently reconstructed",
+    "room retention cascades current reactions"
+  ],
+  "database": "isolated temporary PostgreSQL14 database, deleted afterwards"
+}

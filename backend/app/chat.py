@@ -7,13 +7,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import String, and_, cast, func, literal, null, or_, select, true, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_user, now_utc, require_room_access, require_room_host
 from app.db.events import append_event
 from app.db.models import (ChatMessage, ChatMute, ContentRevision, GameEvent, PlayerState, PrivateMessage,
-                           RoleAssignment, RoleSnapshot, Room, RoomMember, User)
+                           RoleAssignment, RoleRequest, RoleSnapshot, Room, RoomMember, User)
 from app.db.session import get_db
 from app.roles import effective_role_data
 
@@ -72,6 +72,7 @@ class ChatSendInput(BaseModel):
 
 
 class ChatMessageOutput(BaseModel):
+    source_kind: Literal["chat", "private_message", "role_request"] = "chat"
     id: UUID
     event_id: UUID
     sequence: int
@@ -84,6 +85,8 @@ class ChatMessageOutput(BaseModel):
     text: str
     created_at: datetime
     edited_at: datetime | None = None
+    phase_type: str | None = None
+    round_number: int | None = None
     deleted: bool = False
     history: list[dict] | None = None
 
@@ -103,6 +106,12 @@ class ChatActivity(BaseModel):
     sequence: int
 
 
+class ChatParticipant(BaseModel):
+    user_id: UUID
+    display_name: str
+    departed: bool
+
+
 class ChatContext(BaseModel):
     team_labels: list[str]
     writable_team_labels: list[str]
@@ -116,6 +125,7 @@ class ChatContext(BaseModel):
     mute_reason: str | None
     muted_players: list[dict[str, str]]
     activity: list[ChatActivity]
+    dm_participants: list[ChatParticipant]
 
 
 class ChatSendOutput(BaseModel):
@@ -293,7 +303,9 @@ async def team_roster(db: AsyncSession, room: Room) -> dict[str, list[str]]:
     rows = (await db.execute(select(RoleAssignment, PlayerState).join(
         PlayerState, and_(PlayerState.room_id == RoleAssignment.room_id,
                           PlayerState.user_id == RoleAssignment.user_id))
-        .where(RoleAssignment.room_id == room.id))).all()
+        .join(RoomMember, and_(RoomMember.room_id == RoleAssignment.room_id,
+                               RoomMember.user_id == RoleAssignment.user_id))
+        .where(RoleAssignment.room_id == room.id, RoomMember.left_at.is_(None)))).all()
     teams: dict[str, list[str]] = {}
     for assignment, state in rows:
         if (not state.is_alive or not state.public_is_alive) and not policy_for(room)["dead_team_send"]:
@@ -304,8 +316,7 @@ async def team_roster(db: AsyncSession, room: Room) -> dict[str, list[str]]:
     return teams
 
 
-@router.get("/context", response_model=ChatContext)
-async def chat_context(room_id: UUID, user: User = Depends(current_user),
+async def read_chat_context(room_id: UUID, user: User = Depends(current_user),
                        db: AsyncSession = Depends(get_db)) -> ChatContext:
     is_host = await require_room_access(db, room_id, user.id)
     room = await db.get(Room, room_id)
@@ -323,7 +334,7 @@ async def chat_context(room_id: UUID, user: User = Depends(current_user),
         room.phase_type == "night" or policy_for(room)["team_send_in_day"])
                       and not room.is_paused else []) if is_host else (
         [current_team] if team_writable(room, role_state) and current_team else [])
-    if is_host:
+    if is_host or room.status == "finished":
         teams = set(host_roster)
         teams.update((await db.scalars(select(ChatMessage.team_label).where(
             ChatMessage.room_id == room_id, ChatMessage.channel == "team").distinct())).all())
@@ -334,17 +345,35 @@ async def chat_context(room_id: UUID, user: User = Depends(current_user),
         if current_team:
             teams.add(current_team)
     incoming_filters = [ChatMessage.room_id == room_id, ChatMessage.sender_user_id != user.id]
-    if not is_host:
+    if not is_host and room.status != "finished":
         incoming_filters.append(or_(
             ChatMessage.channel == "common",
             and_(ChatMessage.channel == "team", ChatMessage.recipient_ids.contains([str(user.id)])),
             and_(ChatMessage.channel == "host", ChatMessage.participant_user_id == user.id),
         ))
-    activity_rows = (await db.execute(select(
-        ChatMessage.channel, ChatMessage.team_label, ChatMessage.participant_user_id,
-        func.max(ChatMessage.sequence)
-    ).where(*incoming_filters).group_by(
-        ChatMessage.channel, ChatMessage.team_label, ChatMessage.participant_user_id))).all()
+    private_filters = [PrivateMessage.room_id == room_id, PrivateMessage.sender_user_id != user.id]
+    if not is_host and room.status != "finished":
+        private_filters.append(PrivateMessage.user_id == user.id)
+    incoming = union_all(select(
+        ChatMessage.channel.label("channel"), ChatMessage.team_label.label("team_label"),
+        ChatMessage.participant_user_id.label("participant"), ChatMessage.sequence.label("sequence")
+    ).outerjoin(ContentRevision, ContentRevision.source_event_id == ChatMessage.event_id)
+        .where(*incoming_filters, ContentRevision.deleted_at.is_(None)), select(
+        literal("host"), cast(null(), String), PrivateMessage.user_id, PrivateMessage.sequence
+    ).outerjoin(ContentRevision, ContentRevision.source_event_id == PrivateMessage.event_id)
+        .where(*private_filters, ContentRevision.deleted_at.is_(None))).subquery()
+    activity_rows = (await db.execute(select(incoming.c.channel, incoming.c.team_label,
+        incoming.c.participant, func.max(incoming.c.sequence)).group_by(
+            incoming.c.channel, incoming.c.team_label, incoming.c.participant))).all()
+    participants = []
+    if (is_host or room.status == "finished") and room.status in {"playing", "finished"}:
+        participants = [ChatParticipant(user_id=person.id, display_name=person.display_name,
+                                        departed=left_at is not None)
+            for person, left_at in (await db.execute(select(User, RoomMember.left_at)
+                .join(RoomMember, RoomMember.user_id == User.id)
+                .join(PlayerState, and_(PlayerState.room_id == RoomMember.room_id,
+                                        PlayerState.user_id == RoomMember.user_id))
+                .where(RoomMember.room_id == room_id).order_by(RoomMember.seat_number, User.id))).all()]
     slow_seconds = 0 if is_host else int(policy_for(room)["slow_mode_seconds"])
     last_chat_at = await db.scalar(select(ChatMessage.created_at).where(
         ChatMessage.room_id == room_id, ChatMessage.sender_user_id == user.id
@@ -360,10 +389,20 @@ async def chat_context(room_id: UUID, user: User = Depends(current_user),
                        else await host_writable(db, room, user.id, role_state) and not is_muted,
                        is_muted=is_muted, mute_reason=mute.reason if is_muted else None,
                        muted_players=muted_players,
+                       dm_participants=participants,
                        activity=[ChatActivity(channel=channel, team_label=label,
                                               participant_user_id=participant,
                                               sequence=sequence)
                                  for channel, label, participant, sequence in activity_rows])
+
+
+@router.get("/context", response_model=ChatContext)
+async def chat_context(room_id: UUID, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
+    context=await read_chat_context(room_id,user,db)
+    room=await db.get(Room,room_id)
+    if user.id!=room.owner_user_id and room.status!='finished':
+        context=context.model_copy(update={'activity':[]})
+    return context
 
 
 @router.get("/messages", response_model=ChatPage)
@@ -376,86 +415,173 @@ async def chat_messages(room_id: UUID, channel: Channel,
                         participant_user_id: UUID | None = None,
                         user: User = Depends(current_user),
                         db: AsyncSession = Depends(get_db)) -> ChatPage:
+    from app.legacy_protocol import require_legacy_reader
+    await require_legacy_reader(db,room_id,user)
+    # Compatibility for existing clients: this endpoint still contains ChatMessage only.
+    return await read_chat_page(db, user, room_id, channel, before_sequence, after_sequence,
+                                after_updated_sequence, limit, team_label, participant_user_id,
+                                include_private=False)
+
+
+@router.get("/timeline", response_model=ChatPage)
+async def chat_timeline(room_id: UUID, channel: Channel,
+                        before_sequence: int | None = Query(default=None, ge=1),
+                        after_sequence: int | None = Query(default=None, ge=0),
+                        after_updated_sequence: int | None = Query(default=None, ge=0),
+                        limit: int = Query(default=30, ge=1, le=50),
+                        team_label: str | None = Query(default=None, max_length=80),
+                        participant_user_id: UUID | None = None,
+                        channel_id: UUID | None = None,
+                        user: User = Depends(current_user),
+                        db: AsyncSession = Depends(get_db)) -> ChatPage:
+    from app.legacy_protocol import require_legacy_reader
+    await require_legacy_reader(db,room_id,user)
+    if channel_id is not None:
+        from app.channels import resolve_channel
+        ref = await resolve_channel(db, room_id, channel_id, user)
+        expected = "host" if ref.kind == "moderator_dm" else ref.kind
+        if expected != channel or (team_label is not None and team_label != ref.team_label) or (
+                participant_user_id is not None and participant_user_id != ref.participant_user_id):
+            raise HTTPException(status_code=422, detail="Bộ lọc không thuộc kênh này")
+        team_label = ref.team_label
+        # The legacy reader intentionally rejects even an explicit self selector from players.
+        room = await db.get(Room, room_id)
+        if room.owner_user_id == user.id or room.status == "finished":
+            participant_user_id = ref.participant_user_id
+    return await read_chat_page(db, user, room_id, channel, before_sequence, after_sequence,
+                                after_updated_sequence, limit, team_label, participant_user_id,
+                                include_private=True)
+
+
+async def read_chat_page(db: AsyncSession, user: User, room_id: UUID, channel: Channel,
+                         before_sequence: int | None, after_sequence: int | None,
+                         after_updated_sequence: int | None, limit: int,
+                         team_label: str | None, participant_user_id: UUID | None,
+                         *, include_private: bool, include_tombstones: bool = False,
+                         anchor_item: tuple[str, UUID] | None = None, include_requests: bool = False) -> ChatPage:
     is_host = await require_room_access(db, room_id, user.id)
     if sum(value is not None for value in (before_sequence, after_sequence, after_updated_sequence)) > 1:
         raise HTTPException(status_code=422, detail="Chỉ dùng một hướng phân trang")
+    if (team_label is not None and channel != "team") or (participant_user_id is not None and channel != "host"):
+        raise HTTPException(status_code=422, detail="Bộ lọc không thuộc kênh này")
     room = await db.get(Room, room_id)
     finished = room.status == "finished"
-    if not is_host and not finished and (team_label is not None or participant_user_id is not None):
+    if not is_host and not finished and participant_user_id is not None:
         raise HTTPException(status_code=403, detail="Không được chọn cuộc trò chuyện của người khác")
     filters = [ChatMessage.room_id == room_id, ChatMessage.channel == channel]
+    private_filters = [PrivateMessage.room_id == room_id]
     if channel == "team":
-        if is_host or finished:
-            if team_label is not None:
-                filters.append(ChatMessage.team_label == team_label)
-        else:
+        if not is_host and not finished:
             filters.append(ChatMessage.recipient_ids.contains([str(user.id)]))
+        if team_label is not None:
+            filters.append(ChatMessage.team_label == team_label)
     elif channel == "host":
         if is_host and not finished:
             if participant_user_id is None or await db.get(PlayerState, (room_id, participant_user_id)) is None:
                 raise HTTPException(status_code=422, detail="Chọn người chơi trong trận")
-            filters.append(ChatMessage.participant_user_id == participant_user_id)
-        elif finished:
-            if participant_user_id is not None:
-                filters.append(ChatMessage.participant_user_id == participant_user_id)
-        else:
-            filters.append(ChatMessage.participant_user_id == user.id)
-    elif team_label is not None or participant_user_id is not None:
-        raise HTTPException(status_code=422, detail="Kênh chung không có bộ lọc riêng")
-    # A player's polling cursor must not move when an event in another
-    # conversation (or a host-only action) changes the room-wide version.
-    visible_cursor = room.version if is_host else (await db.scalar(select(
-        func.max(ChatMessage.updated_sequence)).where(*filters))) or 0
+        participant = participant_user_id if is_host or finished else user.id
+        if participant is not None:
+            filters.append(ChatMessage.participant_user_id == participant)
+            private_filters.append(PrivateMessage.user_id == participant)
+
+    # Union before applying limit: sources interleave by their committed event position,
+    # even when timestamps or UUIDs collide. Reads never copy or create messages.
+    chats = select(
+        ChatMessage.id, ChatMessage.event_id, ChatMessage.sequence, ChatMessage.updated_sequence,
+        ChatMessage.channel, ChatMessage.team_label, ChatMessage.participant_user_id,
+        ChatMessage.sender_user_id, ChatMessage.text, ChatMessage.created_at,
+        literal("chat").label("source_kind")).where(*filters)
+    if include_private and channel == "host":
+        privates = select(
+            PrivateMessage.id, PrivateMessage.event_id, PrivateMessage.sequence, PrivateMessage.updated_sequence,
+            literal("host"), cast(null(), String), PrivateMessage.user_id,
+            PrivateMessage.sender_user_id, PrivateMessage.text, PrivateMessage.created_at,
+            literal("private_message")).where(*private_filters)
+        sources = [chats, privates]
+        if include_requests:
+            request_filters = [RoleRequest.room_id == room_id]
+            if participant is not None:
+                request_filters.append(RoleRequest.user_id == participant)
+            sources.append(select(RoleRequest.id, RoleRequest.event_id, RoleRequest.sequence, RoleRequest.updated_sequence,
+                literal('host'), cast(null(), String), RoleRequest.user_id, RoleRequest.user_id,
+                RoleRequest.text, RoleRequest.created_at, literal('role_request')).where(*request_filters))
+        source = union_all(*sources).subquery()
+    else:
+        source = chats.subquery()
+
+    # Compute a scoped high-water mark and page in one database snapshot. Revisions and
+    # source rows commit together; a racing edit/create is either here or in changes.
+    visible_cursor = select(func.coalesce(func.max(source.c.updated_sequence), 0)).scalar_subquery()
+    anchor_sequence = None
+    if anchor_item is not None:
+        anchor_query = select(source.c.sequence).outerjoin(
+            ContentRevision, ContentRevision.source_event_id == source.c.event_id).where(
+                source.c.source_kind == anchor_item[0], source.c.id == anchor_item[1])
+        if not finished:
+            anchor_query = anchor_query.where(ContentRevision.deleted_at.is_(None))
+        anchor_sequence = anchor_query.correlate(None).scalar_subquery()
+    page_filters = []
+    if anchor_sequence is not None:
+        page_filters.append(source.c.sequence >= anchor_sequence)
     if before_sequence is not None:
-        filters.append(ChatMessage.sequence < before_sequence)
+        page_filters.append(source.c.sequence < before_sequence)
     if after_sequence is not None:
-        filters.append(ChatMessage.sequence > after_sequence)
+        page_filters.append(source.c.sequence > after_sequence)
     if after_updated_sequence is not None:
-        filters.append(ChatMessage.updated_sequence > after_updated_sequence)
-    if after_updated_sequence is None and not finished:
-        filters.append(or_(ContentRevision.source_event_id.is_(None), ContentRevision.deleted_at.is_(None)))
-    ascending = after_sequence is not None or after_updated_sequence is not None
-    sort_column = ChatMessage.updated_sequence if after_updated_sequence is not None else ChatMessage.sequence
-    rows = (await db.execute(select(ChatMessage, User.display_name, ContentRevision).join(
-        User, User.id == ChatMessage.sender_user_id).where(*filters)
-        .outerjoin(ContentRevision, ContentRevision.source_event_id == ChatMessage.event_id)
-        .order_by(sort_column.asc() if ascending else sort_column.desc()).limit(limit + 1))).all()
+        page_filters.append(source.c.updated_sequence > after_updated_sequence)
+    if after_updated_sequence is None and not finished and not include_tombstones:
+        page_filters.append(ContentRevision.deleted_at.is_(None))
+    ascending = after_sequence is not None or after_updated_sequence is not None or anchor_item is not None
+    sort_column = source.c.updated_sequence if after_updated_sequence is not None else source.c.sequence
+    page = select(source, User.display_name.label("sender_name"),
+                  ContentRevision.current_text, ContentRevision.edited_at, ContentRevision.deleted_at,
+                  GameEvent.payload["phase_type"].as_string().label("phase_type"),
+                  GameEvent.payload["round_number"].as_integer().label("round_number"))\
+        .join(User, User.id == source.c.sender_user_id).join(GameEvent, GameEvent.id == source.c.event_id)\
+        .outerjoin(ContentRevision, ContentRevision.source_event_id == source.c.event_id)\
+        .where(*page_filters).order_by(sort_column.asc() if ascending else sort_column.desc()).limit(limit + 1).cte("timeline_page")
+    # OUTER JOIN retains the cursor for an empty page (including all-deleted channels).
+    boundary = select(visible_cursor.label("cursor"),
+        (anchor_sequence if anchor_sequence is not None else literal(0)).label("anchor_sequence")).cte("timeline_boundary")
+    page_sort = page.c.updated_sequence if after_updated_sequence is not None else page.c.sequence
+    rows = (await db.execute(select(page, boundary.c.cursor, boundary.c.anchor_sequence).select_from(
+        boundary.outerjoin(page, true())).order_by(page_sort.asc() if ascending else page_sort.desc()))).mappings().all()
+    cursor = rows[0]["cursor"]
+    if anchor_item is not None and rows[0]["anchor_sequence"] is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tin được phép xem trong kênh")
+    rows = [row for row in rows if row["id"] is not None]
     has_more = len(rows) > limit
-    page = rows[:limit]
-    ordered = page if ascending else list(reversed(page))
+    page_rows = rows[:limit]
+    ordered = page_rows if ascending else list(reversed(page_rows))
     history_by_source: dict[str, list[dict]] = {}
-    if finished and page:
-        source_ids = [str(item[0].event_id) for item in page]
+    if finished and page_rows:
+        source_ids = [str(item["event_id"]) for item in page_rows]
         revisions = (await db.scalars(select(GameEvent).where(
             GameEvent.room_id == room_id, GameEvent.kind == "content.revision_decided",
             GameEvent.payload["request"]["source_event_id"].astext.in_(source_ids)
         ).order_by(GameEvent.sequence))).all()
-        for revision_event in revisions:
-            request = revision_event.payload["request"]
+        for revision in revisions:
+            request = revision.payload["request"]
             history_by_source.setdefault(request["source_event_id"], []).append({
-                "sequence": revision_event.sequence,
-                "action": request["action"],
-                "text": revision_event.payload.get("new_text"),
-                "created_at": revision_event.created_at.isoformat(),
-            })
+                "sequence": revision.sequence, "action": request["action"],
+                "text": revision.payload.get("new_text"), "created_at": revision.created_at.isoformat()})
     messages = [ChatMessageOutput(
-        id=message.id, event_id=message.event_id, sequence=message.sequence,
-        updated_sequence=message.updated_sequence,
-        channel=message.channel, team_label=message.team_label,
-        participant_user_id=message.participant_user_id,
-        sender_user_id=message.sender_user_id, sender_name=sender_name,
-        text="" if revision and revision.deleted_at else (revision.current_text if revision and revision.edited_at else message.text),
-        created_at=message.created_at, edited_at=revision.edited_at if revision else None,
-        deleted=bool(revision and revision.deleted_at),
-        history=([{"sequence": message.sequence, "action": "send", "text": message.text,
-                   "created_at": message.created_at.isoformat()},
-                  *history_by_source.get(str(message.event_id), [])] if finished else None))
-        for message, sender_name, revision in ordered]
+        id=item["id"], event_id=item["event_id"], source_kind=item["source_kind"],
+        sequence=item["sequence"], updated_sequence=item["updated_sequence"],
+        channel=item["channel"], team_label=item["team_label"], participant_user_id=item["participant_user_id"],
+        sender_user_id=item["sender_user_id"], sender_name=item["sender_name"],
+        text="" if item["deleted_at"] else item["current_text"] if item["edited_at"] else item["text"],
+        created_at=item["created_at"], edited_at=item["edited_at"], deleted=bool(item["deleted_at"]),
+        phase_type=item["phase_type"], round_number=item["round_number"],
+        history=([{"sequence": item["sequence"], "action": "send", "text": item["text"],
+                   "created_at": item["created_at"].isoformat()},
+                  *history_by_source.get(str(item["event_id"]), [])] if finished else None)) for item in ordered]
     return ChatPage(messages=messages,
-                    next_before_sequence=page[-1][0].sequence if has_more and not ascending else None,
-                    next_after_sequence=page[-1][0].sequence if has_more and after_sequence is not None else None,
-                    next_after_updated_sequence=page[-1][0].updated_sequence if has_more and after_updated_sequence is not None else None,
-                    room_cursor=visible_cursor)
+                    next_before_sequence=(page_rows[0]["sequence"] if anchor_item is not None and page_rows else
+                        page_rows[-1]["sequence"] if has_more and not ascending else None),
+                    next_after_sequence=page_rows[-1]["sequence"] if has_more and (after_sequence is not None or anchor_item is not None) else None,
+                    next_after_updated_sequence=page_rows[-1]["updated_sequence"] if has_more and after_updated_sequence is not None else None,
+                    room_cursor=cursor)
 
 
 @router.post("/messages", response_model=ChatSendOutput)
@@ -508,6 +634,9 @@ async def send_chat(room_id: UUID, body: ChatSendInput,
             participant_id = body.participant_user_id
             if participant_id is None or await db.get(PlayerState, (room_id, participant_id)) is None:
                 raise HTTPException(status_code=422, detail="Chọn người chơi trong trận")
+            member = await db.get(RoomMember, (room_id, participant_id))
+            if member is None or member.left_at is not None:
+                raise HTTPException(status_code=409, detail="Người chơi đã rời phòng; hội thoại chỉ đọc")
         else:
             if body.participant_user_id is not None:
                 raise HTTPException(status_code=403, detail="Không được chọn cuộc trò chuyện của người khác")

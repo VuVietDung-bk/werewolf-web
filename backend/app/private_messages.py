@@ -73,6 +73,8 @@ async def my_private_messages(room_id: UUID, user: User = Depends(current_user),
                               db: AsyncSession = Depends(get_db)) -> list[PrivateMessageOutput]:
     if await require_room_access(db, room_id, user.id):
         raise HTTPException(status_code=403, detail="Quản trò mở tin riêng từ bảng người chơi")
+    from app.legacy_protocol import require_legacy_reader
+    await require_legacy_reader(db,room_id,user)
     return await messages_for_player(db, room_id, user.id)
 
 
@@ -95,7 +97,8 @@ async def send_private_message(room_id: UUID, player_id: UUID, body: PrivateMess
     prior = await db.scalar(select(GameEvent).where(
         GameEvent.room_id == room_id, GameEvent.client_request_id == body.client_request_id))
     if prior is not None:
-        if prior.kind != "player.private_message_sent" or prior.payload != payload:
+        previous = {key: value for key, value in prior.payload.items() if key not in {"phase_type", "round_number"}}
+        if prior.kind != "player.private_message_sent" or previous != payload:
             raise HTTPException(status_code=409, detail="Mã yêu cầu đã dùng cho thao tác khác")
         return SendOutput(event_id=prior.id, repeated=True)
     if room.status != "playing":
@@ -106,8 +109,10 @@ async def send_private_message(room_id: UUID, player_id: UUID, body: PrivateMess
     if member is None or member.left_at is not None:
         raise HTTPException(status_code=409, detail="Người chơi đã rời phòng")
     event = await append_event(db, room_id, user.id, "player.private_message_sent", "host",
-                               payload, client_request_id=body.client_request_id)
+                               {**payload, "phase_type": room.phase_type, "round_number": room.round_number},
+                               client_request_id=body.client_request_id)
     db.add(PrivateMessage(room_id=room_id, user_id=player_id, sender_user_id=user.id,
-                          event_id=event.id, text=body.text))
+                          event_id=event.id, text=body.text,
+                          sequence=event.sequence, updated_sequence=event.sequence))
     await db.commit()
     return SendOutput(event_id=event.id, repeated=False)
